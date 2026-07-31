@@ -21,14 +21,15 @@ type PlayerState = "starting" | "playing" | "error";
 export function Player({ providerId, channelId, channelName, onClose }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
+  const sessionIdRef = useRef<string | null>(null);
   const [state, setState] = useState<PlayerState>("starting");
   const [error, setError] = useState<string>();
 
   useEffect(() => {
     let cancelled = false;
-    let sessionId: string | null = null;
     setState("starting");
     setError(undefined);
+    sessionIdRef.current = null;
 
     api
       .post<{ sessionId: string; playlistUrl: string }>(`/providers/${providerId}/live/stream`, { channelId })
@@ -37,7 +38,7 @@ export function Player({ providerId, channelId, channelName, onClose }: Props) {
           api.delete(`/stream/${id}`).catch(() => {});
           return;
         }
-        sessionId = id;
+        sessionIdRef.current = id;
         const video = videoRef.current;
         if (!video) return;
         const fullUrl = `/api${playlistUrl}`;
@@ -74,11 +75,34 @@ export function Player({ providerId, channelId, channelName, onClose }: Props) {
       cancelled = true;
       hlsRef.current?.destroy();
       hlsRef.current = null;
-      if (sessionId) {
-        api.delete(`/stream/${sessionId}`).catch(() => {});
+      if (sessionIdRef.current) {
+        api.delete(`/stream/${sessionIdRef.current}`).catch(() => {});
       }
     };
   }, [providerId, channelId]);
+
+  // Polls the session's own status so a server-side failure (ffmpeg died,
+  // provider dropped the stream) surfaces its real reason here — found via
+  // a real incident that otherwise the only signal is hls.js noticing
+  // indirectly, several segments later, through failed fetches, with a
+  // generic client-side error and no idea why the server actually stopped.
+  useEffect(() => {
+    if (state !== "playing") return;
+    const interval = setInterval(() => {
+      const sessionId = sessionIdRef.current;
+      if (!sessionId) return;
+      api
+        .get<{ status: "starting" | "running" | "error"; error: string | null }>(`/stream/${sessionId}/status`)
+        .then((s) => {
+          if (s.status === "error") {
+            setState("error");
+            setError(s.error ?? "stream stopped unexpectedly");
+          }
+        })
+        .catch(() => {});
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [state]);
 
   return (
     <div className="card" style={{ maxWidth: 720 }}>

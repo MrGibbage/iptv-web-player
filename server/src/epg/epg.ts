@@ -6,6 +6,7 @@ import { Readable } from "node:stream";
 import type { ProviderConnection } from "../recorderClient.js";
 import * as epgDb from "./epgDb.js";
 import { parseXmltvFile } from "./xmltv.js";
+import { log } from "../logger.js";
 
 // Ported from Laomedeia (electron/epg.ts) — same refresh policy (TTL-gated
 // unless forced, staging-swap ingest) and same Xtream-derives-its-own-URL /
@@ -152,7 +153,7 @@ export async function refresh(providerKey: string, connection: ProviderConnectio
   state.refreshing = true;
   state.lastError = null;
   const startedAt = Date.now();
-  console.log(`[epg] ${providerKey}: refresh started force=${force}`);
+  log("epg", `${providerKey}: refresh started force=${force}`);
 
   // Dev override: point IPTV_EPG_FILE at a local XMLTV file to skip the
   // provider download.
@@ -174,10 +175,10 @@ export async function refresh(providerKey: string, connection: ProviderConnectio
     await ingestFile(providerKey, sourceFile);
     epgDb.setMeta(providerKey, LAST_REFRESH_KEY, String(Date.now()));
     const counts = epgDb.getCounts(providerKey);
-    console.log(`[epg] ${providerKey}: refresh completed in ${Date.now() - startedAt}ms channels=${counts.channels} programs=${counts.programs}`);
+    log("epg", `${providerKey}: refresh completed in ${Date.now() - startedAt}ms channels=${counts.channels} programs=${counts.programs}`);
   } catch (err) {
     state.lastError = err instanceof Error ? err.message : String(err);
-    console.log(`[epg] ${providerKey}: refresh failed in ${Date.now() - startedAt}ms: ${state.lastError}`);
+    log("epg", `${providerKey}: refresh failed in ${Date.now() - startedAt}ms: ${state.lastError}`);
   } finally {
     state.refreshing = false;
     state.phase = null;

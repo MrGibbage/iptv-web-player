@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { eq, and } from "drizzle-orm";
 import { db } from "../db/client.js";
 import { channelCodecCache } from "../db/schema.js";
+import { log } from "../logger.js";
 
 // PLAN.md "Playback architecture" — recorder's own lesson (-c copy -f
 // mpegts avoids bitstream-filter failures for ADTS AAC/MP2/AC-3) solves
@@ -120,6 +121,7 @@ export async function getCodecDecision(providerKey: string, channelId: string, s
   const audioPassthrough = !audio;
 
   const decision: CodecDecision = { videoCodec, videoPassthrough, audioCodec, audioProfile, audioPassthrough };
+  log("codec-probe", `${providerKey}/${channelId}: video=${videoCodec}(${videoPassthrough ? "copy" : "transcode"}) audio=${audioCodec ?? "none"}/${audioProfile ?? "-"}(${audioPassthrough ? "copy" : "transcode"})`);
 
   db.insert(channelCodecCache)
     .values({ providerKey, channelId, ...decision })

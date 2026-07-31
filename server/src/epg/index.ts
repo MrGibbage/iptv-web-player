@@ -1,5 +1,6 @@
 import { listEffectiveProviders, getEffectiveProviderConnection, providerCacheKey, ProviderSourceNotConfiguredError } from "../providerSource.js";
 import { refresh } from "./epg.js";
+import { log } from "../logger.js";
 
 // Ported from Laomedeia (electron/main.ts's refreshEpgIfConfigured +
 // setInterval(..., 60 * 60 * 1000)) — refresh on startup (refresh() itself
@@ -20,7 +21,7 @@ async function refreshAllIfConfigured(force = false): Promise<void> {
     // recorder connection isn't reachable — both are real, expected states
     // to skip quietly rather than treat as a scheduler failure.
     if (err instanceof ProviderSourceNotConfiguredError) return;
-    console.log(`[epg] could not list providers for refresh: ${err instanceof Error ? err.message : String(err)}`);
+    log("epg", `could not list providers for refresh: ${err instanceof Error ? err.message : String(err)}`);
     return;
   }
 
@@ -32,7 +33,7 @@ async function refreshAllIfConfigured(force = false): Promise<void> {
     } catch (err) {
       // One provider's failure (unreachable, bad connection info) shouldn't
       // stop the rest of the loop from refreshing.
-      console.log(`[epg] provider ${provider.id} refresh failed: ${err instanceof Error ? err.message : String(err)}`);
+      log("epg", `provider ${provider.id} refresh failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 }

@@ -5,6 +5,7 @@ import crypto from "node:crypto";
 import { resolveLiveStreamUrl } from "../liveChannels.js";
 import { providerCacheKey } from "../providerSource.js";
 import { getCodecDecision } from "./codecProbe.js";
+import { log } from "../logger.js";
 
 // PLAN.md "Playback architecture" — one ffmpeg process per playback
 // session (not shared across viewers, see PLAN.md for why), always
@@ -61,6 +62,7 @@ export async function startSession(providerId: number, channelId: string): Promi
   const sessionId = crypto.randomUUID();
   const dir = path.join(HLS_DATA_DIR, sessionId);
   await mkdir(dir, { recursive: true });
+  log("playback", `${sessionId}: starting provider=${providerId} channel=${channelId} video=${videoPassthrough ? "copy" : "transcode"} audio=${audioPassthrough ? "copy" : "transcode"}`);
 
   const args = [
     // Input-side reconnect options — real IPTV streams hiccup; without
@@ -120,6 +122,12 @@ export async function startSession(providerId: number, channelId: string): Promi
     if (sessions.get(sessionId) === session && session.status !== "error") {
       session.status = "error";
       session.error = `ffmpeg exited unexpectedly (code ${code})`;
+      // The in-memory stderrTail dies with the session at cleanup (idle
+      // sweep runs every 10s, 30s timeout) — this is the only place that
+      // reason survives past that, which is the whole point: found via a
+      // real incident that there was otherwise no way to tell "provider
+      // dropped the stream" from "our own process crashed" after the fact.
+      log("playback", `${sessionId}: ffmpeg exited unexpectedly code=${code}\n${session.stderrTail || "(no stderr captured)"}`);
     }
   });
 
@@ -127,7 +135,7 @@ export async function startSession(providerId: number, channelId: string): Promi
   const deadline = Date.now() + STARTUP_TIMEOUT_MS;
   while (Date.now() < deadline) {
     if (session.status === "error") {
-      stopSession(sessionId);
+      stopSession(sessionId, "startup failed");
       throw new PlaybackStartError(`ffmpeg failed to start: ${session.stderrTail.slice(-500) || "no output"}`);
     }
     try {
@@ -135,6 +143,7 @@ export async function startSession(providerId: number, channelId: string): Promi
       if (content.includes(".ts")) {
         session.status = "running";
         session.lastAccessMs = Date.now();
+        log("playback", `${sessionId}: started successfully`);
         return { sessionId, playlistUrl: `/stream/${sessionId}/playlist.m3u8` };
       }
     } catch {
@@ -142,7 +151,7 @@ export async function startSession(providerId: number, channelId: string): Promi
     }
     await sleep(STARTUP_POLL_MS);
   }
-  stopSession(sessionId);
+  stopSession(sessionId, "startup timed out");
   throw new PlaybackStartError("timed out waiting for the stream to start");
 }
 
@@ -172,10 +181,11 @@ export function getSessionStatus(sessionId: string): { status: SessionStatus; er
 
 const KILL_GRACE_MS = 3_000;
 
-export function stopSession(sessionId: string): void {
+export function stopSession(sessionId: string, reason = "stopped"): void {
   const session = sessions.get(sessionId);
   if (!session) return;
   sessions.delete(sessionId);
+  log("playback", `${sessionId}: ${reason}`);
   session.process.kill("SIGTERM");
   // SIGTERM lets ffmpeg's HLS muxer flush and exit cleanly, which is the
   // common case (observed exiting within ~2-3s against a real provider
@@ -191,7 +201,7 @@ export function stopSession(sessionId: string): void {
 }
 
 export function stopAllSessions(): void {
-  for (const id of [...sessions.keys()]) stopSession(id);
+  for (const id of [...sessions.keys()]) stopSession(id, "server shutting down");
 }
 
 let sweepInterval: ReturnType<typeof setInterval> | null = null;
@@ -201,7 +211,7 @@ export function startHlsSweep(): void {
     const now = Date.now();
     for (const [id, session] of sessions) {
       if (now - session.lastAccessMs > IDLE_TIMEOUT_MS) {
-        stopSession(id);
+        stopSession(id, "idle timeout");
       }
     }
   }, SWEEP_INTERVAL_MS);

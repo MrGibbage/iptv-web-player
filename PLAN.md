@@ -398,6 +398,48 @@ segment with a live stock ticker). Verified clean teardown on both the happy pat
 (`DELETE`, confirmed no orphaned process/directory) and the `tsx watch`-restart path
 (confirmed via explicit shutdown-handler logging). Both packages typecheck and lint clean.
 
+## Playback logging (2026-08-01)
+
+Prompted by a real incident: a channel (Animal Planet) stopped mid-watch and there was no
+way to tell whether the provider dropped it or something on this end failed. Investigating
+turned up two compounding gaps, both now fixed:
+
+- **No persistent log file at all** — every diagnostic (`console.log`) only ever went to
+  the process's own stdout, wherever that happened to be redirected. In dev, that redirect
+  had pointed at a scratchpad file that got deleted mid-session, silently losing everything
+  logged since — confirmed by checking `/proc/<pid>/fd/1`, which pointed at
+  `(deleted)`. `console.log` alone is not durable logging.
+- **Even the in-memory detail was ephemeral** — `hlsSession.ts` already captured ffmpeg's
+  stderr into a rolling tail, but only used it for the *startup*-failure error message;
+  an unexpected exit *after* a session was already running set a generic
+  `"ffmpeg exited unexpectedly (code X)"` with no stderr attached, and the whole session
+  (including that stderr) is deleted from memory within 30–40s by the idle sweep regardless.
+
+Fixed with `server/src/logger.ts` — a small shared `log(scope, message)` that always
+appends to a real file (`data/logs/app.log`, one rotation generation at 2MB, mirroring the
+spirit of Laomedeia's own `logger.ts` without needing its fuller 4-generation scheme for
+what's currently a single log) independent of how the process itself was started. Wired in
+throughout: `hlsSession.ts` now logs session start (provider/channel/codec decision),
+successful start, every stop with its reason (`stopped by client` / `idle timeout` /
+`server shutting down` / `startup failed` / `startup timed out`), and — the actual fix for
+the original incident — an unexpected mid-stream exit now logs the exit code **and the
+full captured stderr tail**, permanently. `codecProbe.ts` logs every new probe decision.
+The EPG module's existing ad-hoc `console.log` calls and the shutdown handler were moved
+onto the same shared logger for consistency.
+
+Also added: `Player.tsx` now polls `GET /stream/:id/status` every 5s while playing, so a
+server-side failure surfaces its real reason immediately in the UI instead of waiting for
+hls.js to notice indirectly through failed segment fetches and report a generic
+client-side error with no idea why the server actually stopped.
+
+**Verified by deliberately simulating a mid-stream crash** (`kill -9` on the ffmpeg
+process directly, bypassing the app's own stop path) against a real channel: confirmed the
+in-memory `GET /stream/:id/status` immediately reflected the error, confirmed the full
+ffmpeg startup log (codecs, stream mapping, segment writes) was captured in
+`data/logs/app.log`, and confirmed that record survived past the point where the idle
+sweep removed the session from memory entirely (`idle timeout` logged ~30s later, session
+gone from the live status endpoint, log entry unaffected). Typechecks clean.
+
 ## Open questions
 
 1. Provider feed size/refresh cost for EPG — worth measuring before accepting a third

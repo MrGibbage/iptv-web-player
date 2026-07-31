@@ -109,7 +109,7 @@ export async function playbackRoutes(app: FastifyInstance) {
       },
     },
     async (request, reply) => {
-      stopSession(request.params.sessionId);
+      stopSession(request.params.sessionId, "stopped by client");
       reply.code(204).send();
     },
   );

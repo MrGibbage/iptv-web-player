@@ -10,6 +10,7 @@ import { liveRoutes } from "./routes/live.js";
 import { playbackRoutes } from "./routes/playback.js";
 import { startEpgRefresh, stopEpgRefresh } from "./epg/index.js";
 import { startHlsSweep, stopHlsSweep, stopAllSessions } from "./playback/hlsSession.js";
+import { log } from "./logger.js";
 
 const app = Fastify({ logger: true });
 
@@ -71,7 +72,7 @@ app.addHook("onClose", async () => {
 // processes involved that time) — this is the same risk with a much more
 // expensive orphan.
 function shutdown() {
-  console.log("[shutdown] signal received, stopping sessions");
+  log("shutdown", "signal received, stopping sessions");
   stopHlsSweep();
   stopAllSessions();
   process.exit(0);
