@@ -554,11 +554,56 @@ same pipeline (`video.readyState === 4`, advancing `currentTime`, a real opening
 frame visible in a screenshot). Both packages typecheck and lint clean, no orphaned
 ffmpeg processes after testing.
 
-**Not yet built: Series (TV Shows) and the Range-proxy path.** Series is the natural next
-increment — same VOD plumbing plus a season/episode layer. The direct-file/Range-proxy
-path from the original note is still worth doing eventually for the common case (file
-already browser-compatible) to skip spinning up ffmpeg at all, but wasn't necessary to
-ship a working VOD player today.
+**Not yet built at the time: Series (TV Shows) and the Range-proxy path** — see the next
+section for Series. The direct-file/Range-proxy path is still worth doing eventually for
+the common case (file already browser-compatible) to skip spinning up ffmpeg at all, but
+wasn't necessary to ship a working VOD player.
+
+## Series (TV Shows) browsing + playback (2026-08-01)
+
+Exactly the VOD pattern, one layer deeper (series → seasons → episodes instead of a flat
+title list) — no new architectural decisions needed, everything from the VOD pass reused
+directly:
+
+- **Backend**: `worker/xtreamSeries.ts` (Xtream's Series API, mirrors `xtreamVod.ts`),
+  `series.ts` (Xtream-only unifying layer, same reasoning as `vod.ts`), `routes/series.ts`
+  (categories/list/details-with-seasons-and-episodes), and
+  `POST /providers/:id/series/stream` (body `{episodeId, containerExtension}`) — an
+  episode is treated as a `kind: "vod"` session in `hlsSession.ts` (finite content, same
+  as a movie), just with its own `series-<providerId>` codec-cache prefix so an episode id
+  can never collide with a numeric VOD `streamId` or a live channel id.
+- **Frontend**: `SeriesBrowser.tsx`, ported closely from Laomedeia's own component —
+  identical category-sidebar/poster-grid/search-scope shape to `VodBrowser.tsx` (Laomedeia
+  literally reuses the same `.vod-panel`/`.vod-grid`/`.vod-poster-*` CSS classes for
+  both; this app's `series.css` does the same, only adding what's actually
+  series-specific: season tabs and the episode list). `Player.tsx`'s discriminated `kind`
+  prop gained a third variant (`"series"`), sending `{episodeId, containerExtension}` to
+  the new route — everything else about playing it is identical to VOD.
+
+**Verified end-to-end against the real `sonix` account** — with a genuine, useful
+surprise along the way: the first three shows tried (a 1968 classic, a 2026 Netflix
+release, another 2026 release) all failed, each for a different real reason —
+`ffprobe`'s error cleanly reported the provider's own CDN returning `400 Bad Request`
+directly (confirmed independently with a plain `curl -L`, which showed the Xtream
+redirect landing on a dead `t11111vod.xyz` mirror), and a separate title's fetch timed
+out entirely (confirmed with a raw `curl` to the same URL, which also hung). Both are
+genuine provider-side content-availability issues, not app bugs — and both were
+immediately distinguishable *as* provider-side from the error message alone, which is
+exactly what the "Playback logging" work earlier was for. A fourth show (*Please Like
+Me*) played correctly end-to-end: real season tabs, real per-episode duration metadata,
+`video.readyState === 4`, advancing `currentTime`, confirmed via a real browser
+screenshot. Also incidentally validated the audio-transcode design against a genuinely
+different codec than anything seen so far — this episode's audio was `eac3` (Dolby
+Digital Plus, not AAC at all), correctly identified as needing transcode rather than
+assumed safe. Both packages typecheck and lint clean; no orphaned ffmpeg processes after
+testing (one test-driven leftover, from the test script closing the browser before the
+unmount's async `DELETE` call completed, cleaned up manually — the same "idle sweep is
+the backstop for hard refresh/tab close" scenario `Player.tsx` already documents, not a
+new bug).
+
+**Not yet built: the direct-file/Range-proxy playback path**, same note as VOD's section
+above — still the more efficient long-term design for already-compatible files, still not
+necessary yet.
 
 ## Open questions
 

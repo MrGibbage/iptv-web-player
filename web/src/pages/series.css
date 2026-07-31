@@ -1,0 +1,80 @@
+/* Ported from Laomedeia (src/app.css, the "Series browser" block). Reuses
+   .vod-panel/.vod-sidebar/.vod-grid/.vod-poster-*/.vod-detail-* from
+   vod.css — series categories/posters look identical to VOD's, per
+   Laomedeia's own comment there. This file only has what's actually
+   series-specific: season tabs and the episode list. Trimmed, same as
+   vod.css: no progress-bar classes (no resume tracking yet). */
+
+.series-detail-card {
+  width: min(820px, 92vw);
+}
+
+.series-season-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 16px 0 10px;
+}
+
+.series-season-tab {
+  padding: 4px 12px;
+  font-size: 0.8rem;
+}
+
+.series-season-tab.active {
+  background: var(--accent-soft);
+  border-color: var(--accent-border);
+  color: var(--text-h);
+}
+
+.series-episode-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.series-episode-row {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.series-episode-row:last-child {
+  border-bottom: none;
+}
+
+.series-episode-main {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 0.85rem;
+}
+
+.series-episode-num {
+  flex-shrink: 0;
+  color: var(--text-dim);
+}
+
+.series-episode-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.series-episode-duration {
+  flex-shrink: 0;
+  font-size: 0.78rem;
+  color: var(--text-faint);
+}
+
+.series-episode-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.series-episode-actions button {
+  padding: 3px 10px;
+  font-size: 0.78rem;
+}

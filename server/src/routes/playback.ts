@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { startSession, stopSession, touchSession, getSessionFilePath, getSessionStatus } from "../playback/hlsSession.js";
 import { resolveLiveStreamUrl } from "../liveChannels.js";
 import { resolveVodStreamUrl } from "../vod.js";
+import { resolveEpisodeStreamUrl } from "../series.js";
 import { providerCacheKey } from "../providerSource.js";
 
 // PLAN.md "Playback architecture" — starting a session needs provider
@@ -24,6 +25,16 @@ const startVodBodySchema = {
   required: ["vodId", "containerExtension"],
   properties: {
     vodId: { type: "integer" },
+    containerExtension: { type: "string", minLength: 1 },
+  },
+  additionalProperties: false,
+} as const;
+
+const startSeriesBodySchema = {
+  type: "object",
+  required: ["episodeId", "containerExtension"],
+  properties: {
+    episodeId: { type: "string", minLength: 1 },
     containerExtension: { type: "string", minLength: 1 },
   },
   additionalProperties: false,
@@ -109,6 +120,40 @@ export async function playbackRoutes(app: FastifyInstance) {
           // namespacing collision risk the way live channelIds have across
           // provider sources, so a plain per-provider prefix is enough.
           codecCacheKey: `vod-${providerId}`,
+        });
+        reply.code(201);
+        return result;
+      } catch (err) {
+        return reply.code(400).send({ error: err instanceof Error ? err.message : String(err) });
+      }
+    },
+  );
+
+  app.post<{ Params: { id: string }; Body: { episodeId: string; containerExtension: string } }>(
+    "/providers/:id/series/stream",
+    {
+      schema: {
+        tags: ["playback"],
+        summary: "Start an HLS playback session for a series episode",
+        description: "Same blocking-until-ready behavior as the live/VOD endpoints. Treated as a VOD-shaped session (no sliding window, real #EXT-X-ENDLIST) — an episode is finite content the same way a movie is.",
+        body: startSeriesBodySchema,
+        response: { 201: { $ref: "StreamSession#" }, 400: { $ref: "Error#" } },
+      },
+    },
+    async (request, reply) => {
+      try {
+        const providerId = Number(request.params.id);
+        const { episodeId, containerExtension } = request.body;
+        const streamUrl = await resolveEpisodeStreamUrl(providerId, episodeId, containerExtension);
+        const result = await startSession({
+          providerId,
+          mediaId: episodeId,
+          streamUrl,
+          kind: "vod",
+          // Episode ids are their own opaque string space — a separate
+          // prefix from vod-<providerId> costs nothing and rules out any
+          // chance of collision with a numeric VOD streamId.
+          codecCacheKey: `series-${providerId}`,
         });
         reply.code(201);
         return result;

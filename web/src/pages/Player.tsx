@@ -7,7 +7,7 @@ type Props = {
   mediaId: string;
   channelName: string;
   onClose: () => void;
-} & ({ kind: "live" } | { kind: "vod"; containerExtension: string });
+} & ({ kind: "live" } | { kind: "vod"; containerExtension: string } | { kind: "series"; containerExtension: string });
 
 type PlayerState = "starting" | "playing" | "error";
 
@@ -46,7 +46,7 @@ const BACK_BUFFER_SECONDS = 600;
 
 export function Player(props: Props) {
   const { providerId, mediaId, channelName, onClose, kind } = props;
-  const containerExtension = props.kind === "vod" ? props.containerExtension : undefined;
+  const containerExtension = props.kind === "vod" || props.kind === "series" ? props.containerExtension : undefined;
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
   const sessionIdRef = useRef<string | null>(null);
@@ -64,10 +64,15 @@ export function Player(props: Props) {
       const startCall =
         kind === "live"
           ? api.post<{ sessionId: string; playlistUrl: string }>(`/providers/${providerId}/live/stream`, { channelId: mediaId })
-          : api.post<{ sessionId: string; playlistUrl: string }>(`/providers/${providerId}/vod/stream`, {
-              vodId: Number(mediaId),
-              containerExtension,
-            });
+          : kind === "vod"
+            ? api.post<{ sessionId: string; playlistUrl: string }>(`/providers/${providerId}/vod/stream`, {
+                vodId: Number(mediaId),
+                containerExtension,
+              })
+            : api.post<{ sessionId: string; playlistUrl: string }>(`/providers/${providerId}/series/stream`, {
+                episodeId: mediaId,
+                containerExtension,
+              });
       startCall
         .then(({ sessionId: id, playlistUrl }) => {
           if (cancelled) {

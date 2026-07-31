@@ -140,3 +140,44 @@ export type VodInfo = {
   rating: number | null;
   containerExtension: string;
 };
+
+export type SeriesCategory = {
+  categoryId: string;
+  categoryName: string;
+};
+
+export type SeriesListItem = {
+  seriesId: number;
+  name: string;
+  cover: string | null;
+  categoryId: string;
+  rating: number | null;
+};
+
+export type SeriesEpisode = {
+  id: string;
+  episodeNum: number;
+  title: string;
+  containerExtension: string;
+  season: number;
+  plot: string | null;
+  duration: string | null;
+};
+
+export type SeriesSeason = {
+  seasonNumber: number;
+  name: string | null;
+  episodes: SeriesEpisode[];
+};
+
+export type SeriesInfo = {
+  name: string;
+  cover: string | null;
+  plot: string | null;
+  cast: string | null;
+  director: string | null;
+  genre: string | null;
+  releaseDate: string | null;
+  rating: number | null;
+  seasons: SeriesSeason[];
+};
