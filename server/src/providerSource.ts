@@ -59,3 +59,17 @@ export async function getEffectiveProviderConnection(id: number): Promise<Provid
   }
   throw new ProviderSourceNotConfiguredError();
 }
+
+// Namespaces a provider id by the current source mode (`recorder-3` vs
+// `local-3`) for anything that caches per-provider data on disk (EPG guide
+// caches so far — see ../epg/epgDb.ts). Recorder ids and local ids are
+// different, unrelated numeric spaces; without this prefix, switching modes
+// could silently reuse another provider's cache file if the ids ever
+// happened to collide numerically.
+export function providerCacheKey(id: number): string {
+  const config = getProviderSourceConfig();
+  if (config.mode === null) {
+    throw new ProviderSourceNotConfiguredError();
+  }
+  return `${config.mode}-${id}`;
+}

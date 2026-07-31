@@ -5,6 +5,8 @@ import Fastify from "fastify";
 import { db } from "./db/client.js";
 import { configRoutes } from "./routes/config.js";
 import { providerRoutes } from "./routes/providers.js";
+import { epgRoutes } from "./routes/epg.js";
+import { startEpgRefresh, stopEpgRefresh } from "./epg/index.js";
 
 const app = Fastify({ logger: true });
 
@@ -45,6 +47,11 @@ app.get("/health/db", { schema: { tags: ["health"], summary: "DB connectivity ch
 
 await app.register(configRoutes);
 await app.register(providerRoutes);
+await app.register(epgRoutes);
+
+app.addHook("onClose", async () => {
+  stopEpgRefresh();
+});
 
 const port = Number(process.env.PORT ?? 4300);
 
@@ -52,3 +59,5 @@ app.listen({ port, host: "0.0.0.0" }).catch((err) => {
   app.log.error(err);
   process.exit(1);
 });
+
+startEpgRefresh();

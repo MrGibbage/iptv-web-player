@@ -166,8 +166,8 @@ iptv-recorder rather than always owning credentials locally:
 - `server/src/providerSource.ts` — the mode-aware accessor every future feature (EPG
   ingestion, live/VOD/series browsing, playback) should read providers through, so the
   recorder-vs-local choice stays contained to one module instead of every downstream
-  feature needing its own branch on `providerSourceConfig.mode`. Not consumed by anything
-  yet — no other feature exists to consume it.
+  feature needing its own branch on `providerSourceConfig.mode`. First consumer: EPG
+  ingestion (below), via `providerCacheKey()`.
 - Web UI: `ProviderSourceChoice` (the ask-first screen) → `RecorderConnection` (connect
   form, then a read-only list of iptv-recorder's providers) or `LocalProviders` (add/test/
   list/delete, Xtream/M3U type selector with conditional fields). A "Change source" button
@@ -181,6 +181,52 @@ correctly reports failure against an unreachable host; delete works; "Change sou
 returns to the choice screen and choosing recorder mode reaches the connect form. Both
 packages typecheck and lint clean.
 
+## EPG ingestion (2026-07-31)
+
+Ported wholesale from Laomedeia (`electron/epg.ts`, `epg-db.ts`, `xmltv.ts`) per decision
+#3 above — same staging-swap/FTS5 design, proven at guide-rendering scale (thousands of
+channels, 100k+ programs), same Xtream-derives-its-own-URL (`{baseUrl}/xmltv.php?
+username=...&password=...`) / M3U-needs-a-manual-`epgUrl` split. Two real changes from
+the original, both consequences of this being a multi-provider REST service instead of a
+single-account Electron app:
+
+- **Per-provider, not per-instance.** Laomedeia only ever had one active provider, so its
+  state (refresh-in-progress, last error) and its SQLite cache file were both module-level
+  singletons. This app can have several configured providers at once (recorder mode
+  returns iptv-recorder's whole list), so `server/src/epg/epg.ts` keys refresh state by a
+  `providerKey` string in a `Map`, and `epgDb.ts` opens a separate cache file per key
+  (`epg-cache-<key>.sqlite3`). The key comes from `providerSource.ts`'s new
+  `providerCacheKey(id)` — `recorder-3` vs. `local-3` — so switching source mode can never
+  let one provider's cache be misread as another's even if the two id spaces collide
+  numerically (they're unrelated: iptv-recorder's ids vs. this app's own local table).
+- **No push channel.** Laomedeia's `epg.ts` had an `onStatusChange` callback wired to
+  Electron IPC so the renderer got live refresh-progress updates. This is a stateless REST
+  API with nothing like that yet — `GET /providers/:id/epg/status` is poll-only for now.
+
+Scheduler (`server/src/epg/index.ts`) mirrors Laomedeia's own `main.ts` startup-refresh +
+hourly `setInterval` exactly, generalized to loop over every enabled provider from
+`listEffectiveProviders()` instead of one hardcoded "active" provider — one provider's
+failure (unreachable, no EPG URL) is caught and logged without aborting the rest of the
+loop. `refresh()` itself still no-ops under a 12h TTL unless `force: true`, unchanged from
+the original.
+
+Routes, all nested under `/providers/:id/epg/*` since a guide is always scoped to one
+provider: `GET status`, `POST refresh` (body `{force?}`), `GET programs` (channelIds +
+time range), `GET search` (FTS, "still airing or later" only — already-ended programs are
+excluded by design, not a bug), `GET bounds`. Status/programs/search/bounds are pure local
+SQLite reads and never touch the network — only `POST refresh` needs a live connection, so
+guide reads stay available even if the provider itself is temporarily unreachable.
+
+Verified end-to-end against a synthetic XMLTV file (via the ported `IPTV_EPG_FILE` dev
+override, same as Laomedeia's): ingest correctly parses channels/programs and stages them
+atomically (`channelCount`/`programCount` correct after refresh); `programs` returns all
+rows in a time range regardless of past/future; `search` correctly excludes an
+already-ended program and correctly returns a currently-airing one; refresh without
+`force` no-ops under the TTL (`lastRefreshMs` unchanged); a provider with no `epgUrl`
+configured fails cleanly with a status-level error rather than throwing; an unknown
+provider id 400s. Cache-file namespacing confirmed on disk (`epg-cache-local-1.sqlite3`,
+`epg-cache-local-2.sqlite3` — no collision). Typechecks clean.
+
 ## Open questions
 
 1. Codec-probe/allowlist design for the hybrid playback path — what determines
@@ -188,3 +234,6 @@ packages typecheck and lint clean.
    channel tune? cached per provider/channel?). Not designed yet.
 2. Provider feed size/refresh cost for EPG — worth measuring before accepting a third
    independent XMLTV download as a non-issue long-term.
+3. No push/live-status channel for EPG refresh progress yet (status is poll-only) — worth
+   revisiting once the guide UI actually needs to show live download/ingest progress
+   rather than just idle/error state.
