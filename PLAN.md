@@ -479,6 +479,45 @@ browser and confirmed (a) only one session appears in the log per Watch click, a
 stream now survives past the previous ~10s cutoff (let it run ~18–20s, closed manually,
 clean `stopped by client` with no unexpected exit).
 
+**Confirmed 5+ minutes of real, uninterrupted playback** immediately after this fix
+shipped (visible in the log: a session running 18:57:40→19:03:47 with a clean
+`stopped by client`, no unexpected exit) — the first real end-to-end validation that the
+double-connection was in fact the cause.
+
+## Live-rewind buffer bound (2026-08-01)
+
+While confirming the fix above, a genuinely fun side-effect got noticed: dragging the
+`<video>` scrubber backward actually works, seeking into content that's already buffered
+client-side rather than re-fetching from a server that's already deleted those segments
+(`-hls_flags delete_segments`). Root cause, confirmed by inspecting the bundled `hls.js`
+dist file directly rather than assuming: two defaults we never overrode —
+`liveDurationInfinity: false` (duration is reported as "how much has been buffered so
+far," not treated as endless) and `backBufferLength: Infinity` (nothing is ever evicted
+from the browser's own buffer). Together, that's an accidental but real "instant rewind"
+feature — genuinely more than Laomedeia has for live TV, which has no seek/rewind concept
+at all there.
+
+The unbounded part was a real concern, though, not just theoretical: using this app's own
+observed bitrates against the real `sonix` account (~3.9 Mbps average, from two actual
+sessions), a 3-hour game would be ~5GB sitting in the watching device's browser tab if
+truly unbounded. Browsers do enforce their own internal MSE quota and will force eviction
+regardless of what the app asks for, but relying on that is unpredictable — invisible
+until it happens, device/browser-dependent, and possibly a stutter when it kicks in
+mid-playback. Bounded it explicitly instead: `new Hls({ backBufferLength: 600 })` (10
+minutes, chosen by the user) in `Player.tsx` — same rewind feature, predictable memory
+ceiling instead of an implicit one. Verified playback still starts and plays correctly
+with the option set (`video.readyState === 4`, advancing `currentTime`, single session
+per Watch click, no unexpected exit).
+
+**Not yet built: VOD/Series playback.** Worth noting for whenever that lands — it
+shouldn't reuse this live-HLS-sliding-window approach at all. VOD has a real, known
+duration up front, so the natural design is either serving the file directly with HTTP
+`Range` support (if already browser-compatible — normal `<video>` seeking, accurate
+duration, no HLS needed) or, if transcoding is required, a proper VOD-style HLS playlist
+with a real `#EXT-X-ENDLIST` and the correct fixed duration from the start. The "duration
+keeps climbing" behavior above is specific to not knowing a live stream's endpoint in
+advance; VOD wouldn't exhibit it.
+
 ## Open questions
 
 1. Provider feed size/refresh cost for EPG — worth measuring before accepting a third

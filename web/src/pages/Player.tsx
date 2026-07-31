@@ -33,6 +33,17 @@ type PlayerState = "starting" | "playing" | "error";
 // request, so only the surviving instance opens a real connection at all.
 const START_DEBOUNCE_MS = 50;
 
+// hls.js defaults to backBufferLength: Infinity — for a live stream, it
+// never discards old buffered video, so the browser tab's memory grows for
+// as long as you keep watching (~490 KB/s observed against real sonix
+// channels, so ~5GB over a 3-hour game). Browsers do enforce their own MSE
+// quota and will force eviction regardless once a tab gets big enough, but
+// relying on that is unpredictable (device/browser-dependent, invisible
+// until it happens). Bounding it ourselves keeps the same live-rewind
+// feature (confirmed working — see PLAN.md "Playback implementation") but
+// with predictable, capped memory use instead.
+const BACK_BUFFER_SECONDS = 600;
+
 export function Player({ providerId, channelId, channelName, onClose }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
@@ -61,7 +72,7 @@ export function Player({ providerId, channelId, channelName, onClose }: Props) {
           const fullUrl = `/api${playlistUrl}`;
 
           if (Hls.isSupported()) {
-            const hls = new Hls();
+            const hls = new Hls({ backBufferLength: BACK_BUFFER_SECONDS });
             hlsRef.current = hls;
             hls.on(Hls.Events.ERROR, (_event, data) => {
               if (data.fatal) {
