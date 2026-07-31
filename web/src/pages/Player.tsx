@@ -18,6 +18,21 @@ type PlayerState = "starting" | "playing" | "error";
 // Always stops its session on unmount — a closed/navigated-away player
 // shouldn't leave ffmpeg running — the server's own idle sweep is a
 // backstop for the cases this can't catch (hard refresh, tab close).
+//
+// Real incident (PLAN.md "Playback logging"): StrictMode's dev-only
+// mount->cleanup->mount double-invoke meant every "Watch" click actually
+// started TWO sessions for the same channel a few hundred ms apart — two
+// simultaneous connections to the provider for the same channel/account,
+// even though the throwaway one was torn down almost immediately after.
+// Both real incidents this surfaced show the survivor getting cut by the
+// provider (clean ffmpeg exit, code 0, no error) ~10s later — consistent
+// enough across two unrelated channels that it looks like cause and
+// effect, not coincidence. Fix: START_DEBOUNCE_MS delays the actual POST
+// just long enough for StrictMode's synchronous double-invoke to finish
+// and mark the throwaway instance cancelled *before* it ever sends a
+// request, so only the surviving instance opens a real connection at all.
+const START_DEBOUNCE_MS = 50;
+
 export function Player({ providerId, channelId, channelName, onClose }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
@@ -31,48 +46,52 @@ export function Player({ providerId, channelId, channelName, onClose }: Props) {
     setError(undefined);
     sessionIdRef.current = null;
 
-    api
-      .post<{ sessionId: string; playlistUrl: string }>(`/providers/${providerId}/live/stream`, { channelId })
-      .then(({ sessionId: id, playlistUrl }) => {
-        if (cancelled) {
-          api.delete(`/stream/${id}`).catch(() => {});
-          return;
-        }
-        sessionIdRef.current = id;
-        const video = videoRef.current;
-        if (!video) return;
-        const fullUrl = `/api${playlistUrl}`;
+    const startTimer = setTimeout(() => {
+      if (cancelled) return;
+      api
+        .post<{ sessionId: string; playlistUrl: string }>(`/providers/${providerId}/live/stream`, { channelId })
+        .then(({ sessionId: id, playlistUrl }) => {
+          if (cancelled) {
+            api.delete(`/stream/${id}`).catch(() => {});
+            return;
+          }
+          sessionIdRef.current = id;
+          const video = videoRef.current;
+          if (!video) return;
+          const fullUrl = `/api${playlistUrl}`;
 
-        if (Hls.isSupported()) {
-          const hls = new Hls();
-          hlsRef.current = hls;
-          hls.on(Hls.Events.ERROR, (_event, data) => {
-            if (data.fatal) {
-              console.error("HLS fatal error", data.details, data.error?.message);
-              setState("error");
-              setError(data.details);
-            }
-          });
-          hls.loadSource(fullUrl);
-          hls.attachMedia(video);
-        } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
-          video.src = fullUrl;
-        } else {
+          if (Hls.isSupported()) {
+            const hls = new Hls();
+            hlsRef.current = hls;
+            hls.on(Hls.Events.ERROR, (_event, data) => {
+              if (data.fatal) {
+                console.error("HLS fatal error", data.details, data.error?.message);
+                setState("error");
+                setError(data.details);
+              }
+            });
+            hls.loadSource(fullUrl);
+            hls.attachMedia(video);
+          } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+            video.src = fullUrl;
+          } else {
+            setState("error");
+            setError("This browser can't play HLS video.");
+            return;
+          }
+          video.play().catch(() => {});
+          setState("playing");
+        })
+        .catch((err) => {
+          if (cancelled) return;
           setState("error");
-          setError("This browser can't play HLS video.");
-          return;
-        }
-        video.play().catch(() => {});
-        setState("playing");
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        setState("error");
-        setError(err instanceof Error ? err.message : String(err));
-      });
+          setError(err instanceof Error ? err.message : String(err));
+        });
+    }, START_DEBOUNCE_MS);
 
     return () => {
       cancelled = true;
+      clearTimeout(startTimer);
       hlsRef.current?.destroy();
       hlsRef.current = null;
       if (sessionIdRef.current) {

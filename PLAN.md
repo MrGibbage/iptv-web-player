@@ -440,6 +440,45 @@ ffmpeg startup log (codecs, stream mapping, segment writes) was captured in
 sweep removed the session from memory entirely (`idle timeout` logged ~30s later, session
 gone from the live status endpoint, log entry unaffected). Typechecks clean.
 
+## Real incident: StrictMode double-connect cutting streams ~10s in (2026-08-01)
+
+The persistent logging above immediately paid for itself: after reports of a few more
+stoppages, `data/logs/app.log` showed a clean, repeatable signature — ffmpeg exiting with
+code 0 and no error message, almost exactly 10 seconds after starting, across two
+completely unrelated channels. That timing consistency (not random) was the tell.
+
+The log also showed, for both incidents, **two separate sessions starting for the same
+channel a few hundred milliseconds apart** — one torn down almost immediately, one
+surviving to actually get watched:
+
+```
+18:45:50.602  session A starting  (channel X)
+18:45:50.838  session B starting  (same channel, 236ms later)
+18:45:52.707  A started successfully
+18:45:52.718  A stopped by client        <- torn down almost instantly
+18:45:52.943  B started successfully      <- this is the one that got watched
+18:46:02.835  B exited unexpectedly, code=0, no error   <- ~10s later
+```
+
+Root cause: `Player.tsx`'s effect issued the "start playback" `POST` directly inside
+`useEffect`, and React's `<StrictMode>` (enabled in `main.tsx`) deliberately double-invokes
+effects in development — mount → cleanup → mount — to catch missing cleanup bugs. That
+meant every "Watch" click briefly opened **two real connections to the provider for the
+same channel on the same account**, even though the throwaway one was cleaned up within
+milliseconds. The theory: the provider's own concurrent/duplicate-connection policing is
+what cut the surviving stream a few seconds later — plausible enough given the ~10s timing
+repeated identically across two unrelated channels, which pure provider flakiness on its
+own wouldn't reliably do.
+
+Fixed with a `START_DEBOUNCE_MS` (50ms) delay before the actual `POST` is issued, checking
+the cancellation flag right before firing. StrictMode's double-invoke happens synchronously
+(same tick, well under 50ms), so the throwaway instance's cleanup always marks it cancelled
+*before* its delayed start ever fires — only the surviving instance ends up sending a
+request at all. **Verified**: re-tested the same channel-watching flow through a real
+browser and confirmed (a) only one session appears in the log per Watch click, and (b) the
+stream now survives past the previous ~10s cutoff (let it run ~18–20s, closed manually,
+clean `stopped by client` with no unexpected exit).
+
 ## Open questions
 
 1. Provider feed size/refresh cost for EPG — worth measuring before accepting a third
