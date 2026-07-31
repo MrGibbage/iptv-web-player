@@ -2,9 +2,9 @@
 
 ## Status
 
-Planning phase — no code yet. This document captures the architecture decisions worked
-through before implementation starts, and the open questions still unresolved. Living
-document, same role PLAN.md plays in iptv-recorder and iptv-scheduler.
+Decisions below resolved on 2026-07-31; scaffolding built same day (pnpm workspace,
+Fastify + Drizzle + SQLite server, Vite + React web — see "Scaffolding" section).
+Living document, same role PLAN.md plays in iptv-recorder and iptv-scheduler.
 
 ## What this is
 
@@ -34,111 +34,100 @@ rules/scheduling service, so this gets its own project rather than bolting onto 
 - Data model shape — favorites, hidden channels, progress, category prefs map directly
   onto DB rows instead of JSON files.
 
-## Decision points
+## Decisions (made 2026-07-31)
 
-### 1. Playback architecture — the hard part, not yet decided
+### 1. Playback architecture: hybrid
+
+Passthrough remux (no re-encode) when the source codec is already browser-legal;
+transcode fallback otherwise. Most efficient at scale, most complex to build — needs
+codec probing plus two serving paths.
 
 Laomedeia plays raw Xtream `.ts` URLs directly into libmpv, backed by a hand-built
 event-driven watchdog (stall detection, GPU-decode wedge detection, software-decode
 fallback) built after real production incidents. None of that exists in a browser, and
-browsers can't play raw MPEG-TS directly. Three options discussed:
+browsers can't play raw MPEG-TS directly, so this needs its own serving layer regardless
+of which of the three original options got picked.
 
-1. **Client-side JS remux** (mpegts.js-style) — fetch the raw stream, demux TS→fMP4
-   in-browser, feed MSE. No server transcode cost, lowest latency — but every provider
-   stream problem hits the browser directly with no server-side buffer to smooth over
-   reconnects, and codec support is whatever the browser's decoder does.
-2. **Server-side remux to HLS** — ffmpeg repackages/transcodes into segmented `.m3u8`
-   for `<video>`/hls.js. Most compatible across devices (TVs, phones, Safari), adds CPU
-   load and segment-buffering latency, centralizes error recovery server-side instead of
-   reimplementing a watchdog in every browser tab.
-3. **Hybrid** — passthrough remux when the source is already browser-legal, transcode
-   fallback otherwise. Most efficient, most complex to decide "when."
+iptv-recorder's `server/src/worker/ffmpegRemux.ts` already proved against a real channel
+that `-c copy -f mpegts` is required for the copy path — fragmented MP4 broke on
+ADTS-framed AAC and MP2/AC-3 audio (see that file's header comment). That lesson
+transfers directly to the passthrough side of the hybrid. The *code* doesn't: recorder's
+remux is a fixed-duration capture-to-file for one job; this needs a continuous process
+serving possibly multiple simultaneous viewers, a different lifecycle entirely, plus new
+work to decide the transcode-fallback trigger (codec probe against a known browser-legal
+allowlist) and to actually implement the transcode path. New code, informed by an
+already-paid-for lesson on the passthrough half only.
 
-Leaning toward server-side remux (2 or 3): iptv-recorder's
-`server/src/worker/ffmpegRemux.ts` already proved against a real channel that
-`-c copy -f mpegts` is required — fragmented MP4 broke on ADTS-framed AAC and MP2/AC-3
-audio (see that file's header comment). That lesson transfers directly. The *code*
-doesn't: recorder's remux is a fixed-duration capture-to-file for one job; this needs a
-continuous process serving possibly multiple simultaneous viewers, a different lifecycle
-entirely. New code, informed by an already-paid-for lesson.
+**Still open:** the specific codec-probe/allowlist logic that decides passthrough vs.
+transcode hasn't been designed yet — see Open Questions.
 
-**Open question:** client remux, server remux, or hybrid — not decided.
-
-### 2. Relationship to iptv-recorder / iptv-scheduler
+### 2. Relationship to iptv-recorder / iptv-scheduler: sibling, no dependency for v1
 
 New sibling service. Own database, own provider-credential store with mirrored crypto
 (matching the pattern iptv-scheduler already used against iptv-recorder). No runtime
 dependency on either service being up just to watch live TV.
 
-**Open question:** should this eventually surface iptv-recorder's completed-recordings
-library in its own UI, so recordings and live/VOD/series all live in one browsing
-experience? If yes, that's a legitimate HTTP-client relationship to recorder (same shape
-as scheduler's `recorderClient.ts`) — but not needed for v1.
+iptv-recorder's completed-recordings library is **not surfaced in v1.** Revisit later via
+an HTTP-client relationship to recorder (same shape as scheduler's `recorderClient.ts`)
+once the core Live/EPG/VOD/Series viewer is solid.
 
-### 3. EPG ingestion
+### 3. EPG ingestion: independent, ported from Laomedeia
 
 iptv-scheduler already ingests EPG data (`server/src/epg/*`), but its `epg_programs`
 table is shaped for rule-matching (flat table, no FTS5, no time/channel-bounded
-virtualization queries) — not for rendering a fast searchable guide grid. Default: port
-Laomedeia's own EPG module wholesale rather than force scheduler's differently-shaped
-table into a guide-rendering role it wasn't built for.
+virtualization queries) — not for rendering a fast searchable guide grid. This service
+ports Laomedeia's own EPG module (`epg.ts`/`epg-db.ts`/`xmltv.ts`) wholesale rather than
+force scheduler's differently-shaped table into a guide-rendering role it wasn't built
+for, accepting a third independent XMLTV download from the provider (Laomedeia desktop,
+scheduler, this) in exchange for no cross-service runtime dependency and no reshaping
+work. Revisit only if the provider's feed size/refresh cost turns out to make that
+wasteful — not measured yet.
 
-**Open question:** is a third independent XMLTV download from the provider (Laomedeia
-desktop, scheduler, now this) acceptable, or does the provider's feed size/refresh cost
-make that wasteful enough to justify pulling raw programme data from scheduler over HTTP
-instead, materializing only the FTS5/guide-shaped cache locally? Not decided — depends on
-real feed size/cost we haven't measured.
+### 4. Credentials & multi-user model: single-user, no auth
 
-### 4. Credentials & multi-user model
+Matches Laomedeia's own model (explicit non-goal: multi-profile). No login system, no
+per-user state separation. LAN-only fits this by default (see #6).
 
-Laomedeia stores credentials per-machine, single user (explicit non-goal: multi-profile).
-A web service centralizes credentials by nature.
+### 5. Concurrent viewers vs. provider connection limits: surface provider errors only
 
-**Open question:** LAN-only, single-user, no auth — or real multi-user auth because
-household members will hit one shared backend holding provider credentials? Not decided;
-changes scope non-trivially if multi-user.
+No active tracking/enforcement of the provider's `max_connections` against current
+stream count for v1. If the provider itself rejects a connection over its limit, that
+error surfaces to the user as-is. Revisit if this proves confusing in practice.
 
-### 5. Concurrent viewers vs. provider connection limits
-
-Xtream's account-info response already reports `active_cons`/`max_connections`. A single
-desktop app instance could never exceed this; multiple browser tabs/devices against one
-shared backend now can.
-
-**Open question:** does the backend need to actively track/enforce/display current
-stream count against the provider's max, or is surfacing the provider's own rejection
-error enough? Not decided.
-
-### 6. Deployment & remote access
+### 6. Deployment & remote access: LAN-only for v1
 
 docker-server is the natural home — matches the existing m3u-editor-stack and the
-documented Hetzner/FRP pattern for `m3u.pelorus.org` (LAN via OPNsense Caddy, remote via
-Hetzner Caddy + FRP, deliberately bypassing Cloudflare's CDN/Tunnel for video traffic).
-
-**Open question:** is remote (away-from-home) access in scope for v1, or LAN-only until
-the core product works? If remote, the same Hetzner/FRP precedent likely applies rather
-than routing video through Cloudflare.
+documented Hetzner/FRP pattern for `m3u.pelorus.org`. Ship the core viewing experience
+over the LAN (via OPNsense Caddy) first; add remote access later via the same Hetzner
+Caddy + FRP precedent (deliberately bypassing Cloudflare's CDN/Tunnel for video traffic)
+once the core product is solid.
 
 ### 7. VOD/Series container formats
 
 Xtream VOD/Series entries carry whatever `container_extension` the provider used — mp4
-plays natively in `<video>`, mkv and others don't. Whichever playback architecture is
-chosen under #1 needs to cover VOD/Series, not just Live.
+plays natively in `<video>`, mkv and others don't. The hybrid playback approach from #1
+covers VOD/Series the same way it covers Live — same codec-probe/passthrough-or-transcode
+logic, not a separate system.
 
-## Not yet decided — stack/scaffolding
+## Stack: confirmed, matches iptv-recorder/iptv-scheduler
 
-No code exists yet; this document precedes scaffolding. iptv-recorder and iptv-scheduler
-both use Fastify + Drizzle + SQLite server-side and Vite + React on the web side —
-following that convention is the default assumption but hasn't been explicitly confirmed
-for this project.
+Fastify + Drizzle + better-sqlite3 server-side, Vite + React (TypeScript) web-side, pnpm
+workspace with `server/` and `web/` packages. Same convention as both sibling projects —
+consistent tooling across all three, less context-switching.
 
-## Open questions summary
+## Scaffolding (2026-07-31)
 
-1. Playback: client-side remux, server-side remux/HLS, or hybrid?
-2. Should completed recordings from iptv-recorder be surfaced here, and on what timeline?
-3. Independent EPG ingestion (port Laomedeia's module) vs. client of iptv-scheduler's raw
-   EPG data — depends on real provider feed size/cost, not yet measured.
-4. Single-user/LAN-only vs. multi-user/household auth?
-5. Does the provider's max-connections limit need active tracking, or is surfacing the
-   provider's own error sufficient?
-6. Is remote (away-from-home) access in scope for v1?
-7. Confirm Fastify + Drizzle + SQLite + Vite/React as the stack, matching recorder/scheduler.
+Initial pnpm workspace scaffolded directly off iptv-scheduler's own scaffold commit
+(`43bcd3c`) as a template — root `package.json`/`pnpm-workspace.yaml`/`tsconfig.base.json`,
+`server/` (Fastify health check, Drizzle client pointed at a placeholder `schema.ts`,
+`drizzle.config.ts`), `web/` (Vite + React, dev-server proxy to `/api`, a health-check
+ping in `App.tsx`). No routes, no DB tables, no crypto/credential storage yet — those
+land with the first real feature, same as both sibling projects did.
+
+## Open questions
+
+1. Codec-probe/allowlist design for the hybrid playback path — what determines
+   passthrough-legal vs. needs-transcode, and where does that check happen (on first
+   channel tune? cached per provider/channel?). Not designed yet.
+2. Provider feed size/refresh cost for EPG — worth measuring before accepting a third
+   independent XMLTV download as a non-issue long-term.
