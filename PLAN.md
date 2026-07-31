@@ -58,8 +58,9 @@ work to decide the transcode-fallback trigger (codec probe against a known brows
 allowlist) and to actually implement the transcode path. New code, informed by an
 already-paid-for lesson on the passthrough half only.
 
-**Still open:** the specific codec-probe/allowlist logic that decides passthrough vs.
-transcode hasn't been designed yet — see Open Questions.
+**Implemented 2026-07-31 — see "Playback implementation" below for the final design
+(HLS with TS segments, video/audio judged independently, one process per session) and the
+two real bugs found building it against the actual `sonix` account.**
 
 ### 2. Relationship to iptv-recorder / iptv-scheduler: sibling, optional credential dependency
 
@@ -327,15 +328,89 @@ highlighted; full-text search returns real results across channels/titles/descri
 with correct LIVE badges on currently-airing programs. No console errors. Both packages
 typecheck and lint clean.
 
+## Playback implementation (2026-07-31)
+
+Resolves decision #1. The design proposed before building matched what got built, with
+one real correction found only through testing against a real provider (below).
+
+- **Always HLS with MPEG-TS segments**, never fragmented MP4 — this is what lets
+  recorder's `-c copy -f mpegts` lesson keep applying regardless of source audio codec
+  (ADTS AAC, MP2, AC-3 all pass through a TS segment with zero bitstream translation; fMP4
+  would hit the exact wall recorder already found and fixed).
+- **`server/src/playback/codecProbe.ts`** — `ffprobe`s a channel's video and audio streams
+  once, caches the decision in the new `channel_codec_cache` table (keyed by
+  `providerSource.providerCacheKey()` + channelId, same namespacing reason as the EPG
+  cache). Video: passthrough only for `h264`, matching the conservative allowlist already
+  planned.
+- **`server/src/playback/hlsSession.ts`** — one ffmpeg process per playback session (not
+  shared across viewers, per the original plan), sliding-window live HLS
+  (`-hls_flags delete_segments`, no retention), `-hls_time 4 -hls_list_size 6`. No
+  auto-restart on ffmpeg failure — mirrors Laomedeia's own explicit decision (SDD: "an
+  automatic kill-and-relaunch was tried and abandoned... landed instead: a fixed, honest
+  message with no Retry") — a failed session surfaces its error via
+  `GET /stream/:id/status`; the user retries by starting a new one.
+- **Routes** (`routes/playback.ts`): `POST /providers/:id/live/stream` (body
+  `{channelId}`, blocks until the stream actually starts or fails — no client-side retry
+  needed for the first load), `GET /stream/:sessionId/:filename` (playlist/segments),
+  `GET /stream/:sessionId/status`, `DELETE /stream/:sessionId`.
+- **Web UI**: `Player.tsx` (`hls.js`, since only Safari has native HLS), wired into both
+  `LiveChannels.tsx` ("Watch" per row) and `EpgGuide.tsx`'s detail panel ("▶ Watch",
+  requiring a reverse lookup from the selected program's EPG channel id back to the live
+  channel — same idea as Laomedeia's own `streamsByEpgId`).
+
+### Real bug #1 — the audio-profile allowlist was wrong, found only by actually watching
+
+The original plan judged audio passthrough by `ffprobe`'s `profile` string (AAC-LC/HE-AAC
+"safe", Main/SSR "not"), on the theory that TS-container compatibility (recorder's lesson)
+and MSE decoder compatibility were the same question for audio the way they're clearly
+different for video. They aren't. A real `sonix` channel (ABC NEWS) reported
+`profile: "HE-AAC"` from ffprobe's own deeper stream analysis (it detected an SBR
+extension) — but the *raw ADTS header's base object type*, which is what hls.js's
+demuxer actually reads to build the browser-facing `mp4a.40.*` codec string, still
+signaled Main (`mp4a.40.1`), which every browser's MSE rejects outright
+(`bufferAddCodecError`). HE-AAC is commonly a Main/LC base layer plus an SBR extension;
+ffprobe's semantic label doesn't reliably reflect what a straight copy leaves in the ADTS
+header. Fix: dropped the audio allowlist entirely — audio is now **always** transcoded to
+AAC-LC when a channel has an audio stream at all (cheap, unlike video, so there's no real
+cost to just not chasing this class of edge case). Video's `h264`-only allowlist is
+unaffected — `codec_name` alone is unambiguous for video in a way AAC profile strings
+turned out not to be for audio.
+
+### Real bug #2 — a graceful-shutdown race looked like an orphaned process, but wasn't
+
+Testing the `tsx watch`-restart orphan-prevention (added specifically because this
+project already hit a real orphaned-process incident earlier, with plain tsx watch
+supervisors, no ffmpeg involved) initially looked like it had failed: touching a file to
+trigger a restart left the ffmpeg process alive for several seconds afterward. Confirmed
+with an explicit log line in the `SIGTERM`/`SIGINT` handler that the handler *does* fire
+immediately — the delay was ffmpeg's own HLS muxer taking anywhere from ~1–5s to flush and
+exit gracefully after receiving `SIGTERM`, not a failure to signal it at all. The
+already-planned `SIGKILL`-after-`KILL_GRACE_MS` (3s) fallback in `stopSession()` bounds
+this regardless. No code change needed — this was a case of the safety mechanism working
+correctly but the first observation catching it mid-shutdown rather than genuinely
+orphaned.
+
+**Verified end-to-end against the real `sonix` account**: a live HLS session for a real
+channel (ABC NEWS, then Yahoo Finance) actually played in a real browser — confirmed via
+`video.readyState === 4` (`HAVE_ENOUGH_DATA`), advancing `currentTime`, real `1920×1080`
+dimensions, and a screenshot showing an actual live broadcast frame (a real Yahoo Finance
+segment with a live stock ticker). Verified clean teardown on both the happy path
+(`DELETE`, confirmed no orphaned process/directory) and the `tsx watch`-restart path
+(confirmed via explicit shutdown-handler logging). Both packages typecheck and lint clean.
+
 ## Open questions
 
-1. Codec-probe/allowlist design for the hybrid playback path — what determines
-   passthrough-legal vs. needs-transcode, and where does that check happen (on first
-   channel tune? cached per provider/channel?). Not designed yet.
-2. Provider feed size/refresh cost for EPG — worth measuring before accepting a third
+1. Provider feed size/refresh cost for EPG — worth measuring before accepting a third
    independent XMLTV download as a non-issue long-term.
-3. M3U category listing re-parses the whole playlist on every call — no caching yet.
+2. M3U category listing re-parses the whole playlist on every call — no caching yet.
    Revisit if a real M3U playlist proves large enough to make browsing feel slow.
-4. Guide and Live TV each fetch their own provider/category/channel list independently —
+3. Guide and Live TV each fetch their own provider/category/channel list independently —
    worth lifting into shared app-level state once enough pages exist to make the
    duplication actually cost something (extra requests, selections falling out of sync).
+4. One ffmpeg process per viewer, not shared per-channel (per the original decision) — if
+   multiple household members ever watch the same channel simultaneously, this burns
+   multiple of the provider's connection slots for one logical "household is watching X"
+   use case. Acceptable for now (matches decision #5's no-active-tracking stance); revisit
+   if it proves a real problem in practice.
+5. No re-probing — a provider changing a channel's video/audio encoding will silently keep
+   using the stale cached decision indefinitely. No manual "re-probe" trigger exists yet.

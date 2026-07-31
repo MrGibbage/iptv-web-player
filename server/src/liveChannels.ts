@@ -1,5 +1,5 @@
 import { getEffectiveProviderConnection } from "./providerSource.js";
-import { getLiveCategories, getLiveStreams } from "./worker/xtreamLive.js";
+import { getLiveCategories, getLiveStreams, buildLiveStreamUrl } from "./worker/xtreamLive.js";
 import { fetchM3uPlaylist, parseM3uPlaylist } from "./worker/m3uPlaylist.js";
 
 // Unifies Xtream's category/stream API and M3U's flat playlist behind one
@@ -71,4 +71,16 @@ export async function listLiveChannels(providerId: number, categoryId?: string):
     categoryId: ch.category,
     epgChannelId: ch.epgChannelId,
   }));
+}
+
+// The actual bytes-on-the-wire source for a channel — needed by playback
+// (../playback/hlsSession.ts), not by browsing. Xtream: streamId has to be
+// turned into a URL with embedded credentials. M3U: channelId already *is*
+// the resolved stream URL (see ../worker/m3uPlaylist.ts), nothing to build.
+export async function resolveLiveStreamUrl(providerId: number, channelId: string): Promise<string> {
+  const connection = await getEffectiveProviderConnection(providerId);
+  if (connection.type === "xtream") {
+    return buildLiveStreamUrl(connection, Number(channelId));
+  }
+  return channelId;
 }

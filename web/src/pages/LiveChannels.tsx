@@ -1,17 +1,18 @@
 import { useEffect, useState } from "react";
 import { api, type EffectiveProvider, type LiveCategory, type LiveChannel } from "../api";
+import { Player } from "./Player";
 
 // PLAN.md "Live TV channel browsing" — category filter + channel list
-// against whichever provider source is active. No playback yet (PLAN.md
-// decision #1, hybrid playback architecture, is still unresolved) — this is
-// discovery only, matching Laomedeia's own PRD build order (Live TV
-// browsing before the Guide).
+// against whichever provider source is active, plus a "Watch" action that
+// starts an HLS playback session (see ./Player.tsx and PLAN.md "Playback
+// architecture").
 export function LiveChannels() {
   const [providers, setProviders] = useState<EffectiveProvider[] | "loading" | "error">("loading");
   const [providerId, setProviderId] = useState<number | null>(null);
   const [categories, setCategories] = useState<LiveCategory[] | "loading" | "error">("loading");
   const [categoryId, setCategoryId] = useState<string>("");
   const [channels, setChannels] = useState<LiveChannel[] | "loading" | "error">("loading");
+  const [playing, setPlaying] = useState<{ channelId: string; name: string } | null>(null);
 
   useEffect(() => {
     api
@@ -99,6 +100,10 @@ export function LiveChannels() {
         </label>
       </div>
 
+      {playing && providerId !== null && (
+        <Player providerId={providerId} channelId={playing.channelId} channelName={playing.name} onClose={() => setPlaying(null)} />
+      )}
+
       {categories === "error" && <p className="error">Could not load categories.</p>}
 
       {channels === "loading" && <p>Loading channels…</p>}
@@ -112,7 +117,10 @@ export function LiveChannels() {
                 {ch.streamIcon && (
                   <img src={ch.streamIcon} alt="" width={20} height={20} style={{ verticalAlign: "middle", marginRight: 8 }} onError={(e) => (e.currentTarget.style.display = "none")} />
                 )}
-                {ch.name}
+                {ch.name}{" "}
+                <button type="button" className="button-link" onClick={() => setPlaying({ channelId: ch.channelId, name: ch.name })}>
+                  Watch
+                </button>
               </li>
             ))}
           </ul>

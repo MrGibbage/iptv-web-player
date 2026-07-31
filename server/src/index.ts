@@ -7,7 +7,9 @@ import { configRoutes } from "./routes/config.js";
 import { providerRoutes } from "./routes/providers.js";
 import { epgRoutes } from "./routes/epg.js";
 import { liveRoutes } from "./routes/live.js";
+import { playbackRoutes } from "./routes/playback.js";
 import { startEpgRefresh, stopEpgRefresh } from "./epg/index.js";
+import { startHlsSweep, stopHlsSweep, stopAllSessions } from "./playback/hlsSession.js";
 
 const app = Fastify({ logger: true });
 
@@ -50,10 +52,32 @@ await app.register(configRoutes);
 await app.register(providerRoutes);
 await app.register(epgRoutes);
 await app.register(liveRoutes);
+await app.register(playbackRoutes);
 
 app.addHook("onClose", async () => {
   stopEpgRefresh();
+  stopHlsSweep();
+  stopAllSessions();
 });
+
+// Playback sessions spawn real ffmpeg child processes, not just timers —
+// an orphaned one keeps pulling from the provider and burning CPU
+// indefinitely, not just idling. Fastify's onClose only runs for a graceful
+// app.close(); it does NOT run automatically on SIGTERM/SIGINT (e.g. `tsx
+// watch` restarting this process on every file save during dev), so those
+// need their own explicit handlers or every hot-reload leaks an ffmpeg
+// process. Found and fixed a real instance of exactly this class of bug
+// earlier in this project (orphaned tsx watch supervisors, no child
+// processes involved that time) — this is the same risk with a much more
+// expensive orphan.
+function shutdown() {
+  console.log("[shutdown] signal received, stopping sessions");
+  stopHlsSweep();
+  stopAllSessions();
+  process.exit(0);
+}
+process.on("SIGTERM", shutdown);
+process.on("SIGINT", shutdown);
 
 const port = Number(process.env.PORT ?? 4300);
 
@@ -63,3 +87,4 @@ app.listen({ port, host: "0.0.0.0" }).catch((err) => {
 });
 
 startEpgRefresh();
+startHlsSweep();

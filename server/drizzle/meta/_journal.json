@@ -8,6 +8,13 @@
       "when": 1785493616905,
       "tag": "0000_breezy_roulette",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1785522164297,
+      "tag": "0001_sweet_white_tiger",
+      "breakpoints": true
     }
   ]
 }

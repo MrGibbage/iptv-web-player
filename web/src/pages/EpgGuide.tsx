@@ -1,16 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { api, type EffectiveProvider, type EpgBounds, type EpgProgram, type EpgSearchResult, type EpgStatus, type LiveCategory, type LiveChannel } from "../api";
+import { Player } from "./Player";
 import "./epg.css";
 
 // Ported from Laomedeia (src/components/EpgGrid.tsx) — same virtualized
 // channel-by-time grid, same staging-swap-backed data underneath it
 // (already proven against the real sonix account's ~2,000 channels/100k+
 // programs in the previous session). Adapted from Electron IPC
-// (window.epg.*) to this app's REST API, and with the tune/record UI
-// dropped entirely: playback (PLAN.md decision #1) and recordings (v1
-// non-goal) don't exist here yet, so a program block's detail panel shows
-// info only, no "Watch"/"Record" actions.
+// (window.epg.*) to this app's REST API. Recording is still dropped
+// entirely (v1 non-goal) but "▶ Watch" is back on the detail panel now that
+// playback exists — same idea as Laomedeia's own `streamsByEpgId` lookup:
+// the selected program's channelId is an XMLTV/EPG id, a different id space
+// than the live channel's own channelId (Xtream stream_id or M3U URL), so
+// watching from here needs a reverse lookup from one to the other.
 //
 // Also standalone rather than prop-driven: Laomedeia's App.tsx lifts Live
 // TV's channel list and category selection so Guide and Live TV share one
@@ -80,12 +83,20 @@ export function EpgGuide() {
   const [searchResults, setSearchResults] = useState<EpgSearchResult[]>([]);
   const [jumpTarget, setJumpTarget] = useState<{ channelId: string; timeMs: number } | null>(null);
   const lastRefreshRef = useRef<number | null>(null);
+  const [playing, setPlaying] = useState<{ channelId: string; name: string } | null>(null);
 
   const dayEndMs = nextMidnight(dayStartMs);
   const dayMinutes = (dayEndMs - dayStartMs) / 60_000;
   const contentWidth = CH_COL_W + dayMinutes * PX_PER_MIN;
   const searchActive = searchQuery.trim().length > 0;
   const visibleEpgChannelIds = useMemo(() => new Set(channels.flatMap((channel) => (channel.epgChannelId ? [channel.epgChannelId] : []))), [channels]);
+  const channelsByEpgId = useMemo(() => {
+    const map = new Map<string, LiveChannel>();
+    for (const c of channels) {
+      if (c.epgChannelId && !map.has(c.epgChannelId)) map.set(c.epgChannelId, c);
+    }
+    return map;
+  }, [channels]);
 
   const rowVirtualizer = useVirtualizer({
     count: channels.length,
@@ -475,11 +486,18 @@ export function EpgGuide() {
                 {selected.channelName} · {fmtDay(selected.program.startMs)} {fmtTime(selected.program.startMs)}–{fmtTime(selected.program.stopMs)}
               </div>
               <div className="epg-detail-desc">{selected.program.description || "No description."}</div>
+              {channelsByEpgId.has(selected.program.channelId) && (
+                <button onClick={() => setPlaying({ channelId: channelsByEpgId.get(selected.program.channelId)!.channelId, name: selected.channelName })}>▶ Watch</button>
+              )}
             </div>
           ) : (
             <div className="epg-detail-empty">Select a program to see details.</div>
           )}
         </div>
+      )}
+
+      {playing && providerId !== null && (
+        <Player providerId={providerId} channelId={playing.channelId} channelName={playing.name} onClose={() => setPlaying(null)} />
       )}
     </div>
   );
