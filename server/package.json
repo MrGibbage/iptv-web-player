@@ -10,6 +10,8 @@
     "db:migrate": "tsx src/db/migrate.ts"
   },
   "dependencies": {
+    "@fastify/swagger": "^9.8.1",
+    "@fastify/swagger-ui": "^6.1.0",
     "better-sqlite3": "^11.10.0",
     "dotenv": "^16.4.5",
     "drizzle-orm": "^0.36.4",

@@ -61,11 +61,16 @@ already-paid-for lesson on the passthrough half only.
 **Still open:** the specific codec-probe/allowlist logic that decides passthrough vs.
 transcode hasn't been designed yet — see Open Questions.
 
-### 2. Relationship to iptv-recorder / iptv-scheduler: sibling, no dependency for v1
+### 2. Relationship to iptv-recorder / iptv-scheduler: sibling, optional credential dependency
 
-New sibling service. Own database, own provider-credential store with mirrored crypto
-(matching the pattern iptv-scheduler already used against iptv-recorder). No runtime
-dependency on either service being up just to watch live TV.
+New sibling service, own database. Revised from the original "no runtime dependency on
+recorder" stance: provider credentials now follow iptv-scheduler's own pattern instead —
+an "ask first" setup screen (`ProviderSourceConfig.mode`, see "Provider-credential store"
+below) lets this app either source providers from iptv-recorder live over HTTP (no local
+copy of those credentials at all, avoiding a second encrypted copy of an account
+iptv-recorder already holds for DVR) or own a local encrypted store when recorder isn't
+in use or holds a different account. Whichever is chosen, the rest of the app reads
+providers through `server/src/providerSource.ts`, which hides which of the two is active.
 
 iptv-recorder's completed-recordings library is **not surfaced in v1.** Revisit later via
 an HTTP-client relationship to recorder (same shape as scheduler's `recorderClient.ts`)
@@ -129,6 +134,52 @@ Verified booting end-to-end: `pnpm install` clean, server's `/health` and `/heal
 both return `{"status":"ok"}`, the Vite dev server's `/api` proxy reaches the Fastify
 backend (`curl localhost:5173/api/health` → `ok`), and both packages typecheck
 (`tsc --noEmit` / `tsc -b`) with zero errors.
+
+## Provider-credential store (2026-07-31)
+
+First real feature. Supports **both Xtream Codes and M3U** providers (not Xtream-only —
+revised from the original porting-candidates framing, which followed Laomedeia's
+Xtream-only model; this app follows iptv-recorder/iptv-scheduler's broader support
+instead). Built as an "ask first" choice, mirroring iptv-scheduler's own relationship to
+iptv-recorder rather than always owning credentials locally:
+
+- `provider_source_config` (singleton, starts unset): `mode` is `'recorder' | 'local' |
+  null`. Unset is a real, expected first-boot state — the web UI shows a choice screen
+  ("Use iptv-recorder's credentials" vs. "Enter my own provider details") before anything
+  else renders, the same way iptv-scheduler's UI gates everything behind a working
+  recorder connection.
+- **`mode = 'recorder'`**: `recorder_config` (singleton: baseUrl + encrypted API key) and
+  `server/src/recorderClient.ts` — both mirror iptv-scheduler's own recorderConfig/
+  recorderClient.ts almost exactly (thin HTTP client, `RecorderNotConfiguredError`,
+  test-before-save on `PUT /config/recorder`). Trimmed to the two endpoints this app
+  needs (`GET /providers`, `GET /providers/{id}/connection`) — no recordings-related
+  methods, since this app doesn't touch recordings (decision #2 above).
+- **`mode = 'local'`**: `providers` table, own encrypted store, structurally identical to
+  iptv-recorder's own (type-discriminated `xtream | m3u`, a CHECK constraint enforcing
+  the right fields per type, AES-256-GCM at rest via `crypto.ts` — deliberately mirrored,
+  not shared, with its own `ENCRYPTION_KEY`, same "independent secrets store" precedent as
+  iptv-scheduler vs. iptv-recorder). Full CRUD (`POST/GET/PUT/DELETE /providers`) plus
+  `POST /providers/test` (live auth check before saving — `player_api.php` auth for
+  Xtream, `#EXTM3U` fetch check for M3U), ported from iptv-recorder's own
+  `worker/xtreamAuth.ts`. No `maxConcurrentStreams` field — this app doesn't track
+  connection limits (decision #5).
+- `server/src/providerSource.ts` — the mode-aware accessor every future feature (EPG
+  ingestion, live/VOD/series browsing, playback) should read providers through, so the
+  recorder-vs-local choice stays contained to one module instead of every downstream
+  feature needing its own branch on `providerSourceConfig.mode`. Not consumed by anything
+  yet — no other feature exists to consume it.
+- Web UI: `ProviderSourceChoice` (the ask-first screen) → `RecorderConnection` (connect
+  form, then a read-only list of iptv-recorder's providers) or `LocalProviders` (add/test/
+  list/delete, Xtream/M3U type selector with conditional fields). A "Change source" button
+  returns to the choice screen without touching the persisted mode until a new choice is
+  actually made — there's no "unset" state to bounce through in between.
+
+Verified end-to-end with a real browser (Playwright): ask-first screen renders first on a
+clean DB; choosing local mode reaches the provider form; Xtream and M3U creation both
+work with credentials never round-tripped back in any response; `POST /providers/test`
+correctly reports failure against an unreachable host; delete works; "Change source"
+returns to the choice screen and choosing recorder mode reaches the connect form. Both
+packages typecheck and lint clean.
 
 ## Open questions
 

@@ -1,17 +1,50 @@
 import "dotenv/config";
+import swagger from "@fastify/swagger";
+import swaggerUi from "@fastify/swagger-ui";
 import Fastify from "fastify";
 import { db } from "./db/client.js";
+import { configRoutes } from "./routes/config.js";
+import { providerRoutes } from "./routes/providers.js";
 
 const app = Fastify({ logger: true });
 
-app.get("/health", async () => {
+// Mirrors iptv-recorder/iptv-scheduler's own Swagger setup exactly, minus
+// any auth/security block — this app has no auth at all (single-user,
+// LAN-only decision, see PLAN.md).
+await app.register(swagger, {
+  openapi: {
+    info: {
+      title: "iptv-web-player API",
+      description: "Live TV / EPG / VOD / Series web player backend. See PLAN.md in the repo for design rationale.",
+      version: "0.1.0",
+    },
+  },
+  refResolver: {
+    buildLocalReference(json: { $id?: string }, _baseUri: unknown, _fragment: unknown, i: number) {
+      return json.$id ?? `def-${i}`;
+    },
+  },
+});
+await app.register(swaggerUi, { routePrefix: "/documentation" });
+
+app.addSchema({
+  $id: "Error",
+  type: "object",
+  properties: { error: { type: "string" } },
+  required: ["error"],
+});
+
+app.get("/health", { schema: { tags: ["health"], summary: "Liveness check" } }, async () => {
   return { status: "ok" };
 });
 
-app.get("/health/db", async () => {
+app.get("/health/db", { schema: { tags: ["health"], summary: "DB connectivity check" } }, async () => {
   db.$client.pragma("journal_mode");
   return { status: "ok" };
 });
+
+await app.register(configRoutes);
+await app.register(providerRoutes);
 
 const port = Number(process.env.PORT ?? 4300);
 

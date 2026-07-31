@@ -1,0 +1,1 @@
+export const PROVIDER_STATUS_CHECK_TIMEOUT_MS = 5_000;
