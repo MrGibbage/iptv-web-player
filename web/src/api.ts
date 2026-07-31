@@ -87,3 +87,30 @@ export type LiveChannel = {
   categoryId: string | null;
   epgChannelId: string | null;
 };
+
+export type EpgStatus = {
+  state: "idle" | "refreshing" | "error";
+  phase: "download" | "ingest" | null;
+  lastRefreshMs: number | null;
+  channelCount: number;
+  programCount: number;
+  error: string | null;
+};
+
+export type EpgProgram = {
+  id: number;
+  channelId: string;
+  startMs: number;
+  stopMs: number;
+  title: string;
+  description: string;
+};
+
+export type EpgSearchResult = EpgProgram & {
+  channelName: string;
+};
+
+export type EpgBounds = {
+  minStartMs: number | null;
+  maxStopMs: number | null;
+};

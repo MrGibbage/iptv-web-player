@@ -4,9 +4,10 @@ import { ProviderSourceChoice } from "./pages/ProviderSourceChoice";
 import { RecorderConnection } from "./pages/RecorderConnection";
 import { LocalProviders } from "./pages/LocalProviders";
 import { LiveChannels } from "./pages/LiveChannels";
+import { EpgGuide } from "./pages/EpgGuide";
 
 type LoadState = ProviderSourceConfig | "loading" | "error";
-type Tab = "providers" | "live";
+type Tab = "providers" | "live" | "guide";
 
 // PLAN.md "Credentials Model" — provider-source mode is the one global
 // blocking state everything else sits behind, the same way iptv-scheduler
@@ -55,6 +56,9 @@ function App() {
           <button type="button" className={tab === "live" ? "active" : ""} onClick={() => setTab("live")}>
             Live TV
           </button>
+          <button type="button" className={tab === "guide" ? "active" : ""} onClick={() => setTab("guide")}>
+            Guide
+          </button>
         </nav>
       )}
       {showChoice && <ProviderSourceChoice onChosen={handleChosen} />}
@@ -65,6 +69,11 @@ function App() {
         <LocalProviders onChangeSource={() => setChangingSource(true)} />
       )}
       {!showChoice && configured && tab === "live" && <LiveChannels />}
+      {!showChoice && configured && tab === "guide" && (
+        <div className="guide-container">
+          <EpgGuide />
+        </div>
+      )}
     </main>
   );
 }

@@ -1,0 +1,350 @@
+/* Ported from Laomedeia (src/components/epg.css). Trimmed: no
+   .channel-cat-btn/.channel-cat-menu (CategoryFilter wasn't ported — this
+   page uses a plain <select>, same as LiveChannels.tsx) and no .nownext-bar
+   (Live TV's now/next strip isn't built yet). */
+
+.epg-root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-width: 0;
+}
+
+.epg-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+.epg-toolbar button {
+  padding: 5px 12px;
+  font-size: 0.85rem;
+}
+
+.epg-toolbar select {
+  max-width: 220px;
+  font-size: 0.85rem;
+}
+
+.epg-toolbar .epg-day-label {
+  min-width: 130px;
+  text-align: center;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.epg-search-input {
+  flex: 1;
+  min-width: 160px;
+  max-width: 340px;
+}
+
+.epg-status {
+  margin-left: auto;
+  font-size: 0.74rem;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.epg-status.epg-status-error {
+  color: var(--now-line);
+}
+
+.epg-scroll {
+  flex: 1;
+  overflow: auto;
+  position: relative;
+  background: var(--bg-0);
+}
+
+.epg-ruler {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--border);
+}
+
+.epg-ruler-corner {
+  position: sticky;
+  left: 0;
+  z-index: 5;
+  height: 100%;
+  background: var(--bg-1);
+  border-right: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+  box-sizing: border-box;
+}
+
+.epg-tick {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  padding-left: 5px;
+  border-left: 1px solid var(--border);
+  box-sizing: border-box;
+  pointer-events: none;
+}
+
+.epg-row {
+  position: absolute;
+  left: 0;
+  border-bottom: 1px solid var(--border);
+  box-sizing: border-box;
+}
+
+.epg-channel-cell {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  width: 220px;
+  height: 100%;
+  background: var(--bg-1);
+  border-right: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.epg-channel-cell img {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+  flex-shrink: 0;
+  border-radius: 4px;
+}
+
+.epg-channel-cell span {
+  font-size: 0.8rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.epg-block {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 3px 6px;
+  box-sizing: border-box;
+  overflow: hidden;
+  cursor: pointer;
+  z-index: 1;
+}
+
+.epg-block:hover {
+  background: var(--bg-3);
+  border-color: var(--accent-border);
+}
+
+.epg-block.epg-block-selected {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.epg-block.epg-block-past {
+  opacity: 0.5;
+}
+
+.epg-block .epg-block-title {
+  font-size: 0.78rem;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.epg-block .epg-block-time {
+  font-size: 0.68rem;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.epg-no-data {
+  position: absolute;
+  left: 230px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 0.76rem;
+  color: var(--text-faint);
+  font-style: italic;
+}
+
+.epg-now-line {
+  position: absolute;
+  top: 0;
+  width: 2px;
+  background: var(--now-line);
+  z-index: 3;
+  pointer-events: none;
+}
+
+.epg-detail {
+  border-top: 1px solid var(--border);
+  background: var(--bg-1);
+  padding: 10px 14px;
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  min-height: 96px;
+  max-height: 170px;
+  overflow-y: auto;
+  box-sizing: border-box;
+}
+
+.epg-detail-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.epg-detail-title {
+  font-weight: 700;
+  font-size: 0.98rem;
+}
+
+.epg-detail-meta {
+  font-size: 0.79rem;
+  color: var(--text-dim);
+  margin: 2px 0 6px;
+}
+
+.epg-detail-desc {
+  font-size: 0.84rem;
+  color: var(--text);
+  white-space: pre-wrap;
+}
+
+.epg-detail-empty {
+  color: var(--text-faint);
+  font-size: 0.84rem;
+  align-self: center;
+}
+
+.epg-search-results {
+  flex: 1;
+  overflow-y: auto;
+  background: var(--bg-0);
+}
+
+.epg-search-result {
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+}
+
+.epg-search-result:hover {
+  background: var(--bg-2);
+}
+
+.epg-search-result.epg-sr-live {
+  background: var(--accent-soft);
+}
+
+.epg-search-result .epg-sr-live-badge {
+  align-self: center;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  line-height: 1;
+  color: #ffffff;
+  background: var(--now-line);
+  border-radius: 4px;
+  padding: 3px 5px;
+  flex-shrink: 0;
+}
+
+.epg-search-result .epg-sr-time {
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  white-space: nowrap;
+  min-width: 150px;
+}
+
+.epg-search-result .epg-sr-channel {
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  min-width: 200px;
+  max-width: 260px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.epg-search-result .epg-sr-title {
+  font-weight: 600;
+  font-size: 0.86rem;
+  white-space: nowrap;
+}
+
+.epg-search-result .epg-sr-desc {
+  font-size: 0.78rem;
+  color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.epg-empty-state {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 24px;
+  text-align: center;
+  background: var(--bg-0);
+}
+
+.epg-empty-title {
+  margin: 0;
+  font-size: 1.02rem;
+  font-weight: 600;
+}
+
+.epg-empty-sub {
+  margin: 0 0 10px;
+  font-size: 0.85rem;
+  color: var(--text-dim);
+  max-width: 420px;
+}
+
+.epg-spinner {
+  width: 30px;
+  height: 30px;
+  margin-bottom: 10px;
+  border-radius: 50%;
+  border: 3px solid var(--border-strong);
+  border-top-color: var(--accent);
+  animation: epg-spin 0.9s linear infinite;
+}
+
+@keyframes epg-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

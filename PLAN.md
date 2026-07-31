@@ -277,6 +277,56 @@ the effect's cleanup) in both the categories and channels fetch effects in
 `LiveChannels.tsx`. Re-verified via the same browser test — correct 58-channel list now
 renders every time.
 
+## EPG Guide grid (2026-07-31)
+
+Ported from Laomedeia (`src/components/EpgGrid.tsx` + `epg.css`) — same virtualized
+channel-by-time grid (`@tanstack/react-virtual`, row-only virtualization; the time axis is
+plain absolute positioning inside a wide scrollable container, not virtualized), same
+staging-swap-backed data underneath it. This is the single largest UI port so far and the
+first real proof that the whole stack (credentials → EPG ingestion → Live channels →
+guide rendering) fits together.
+
+Two real changes from the original:
+
+- **Electron IPC → REST, and no push channel.** `window.epg.*` calls become plain
+  `api.get`/`api.post` calls against `/providers/:id/epg/*`. Laomedeia got live
+  refresh-progress updates over IPC (`onStatusChange`); this app polls `GET .../status`
+  every 30s instead (reusing the same timer as the now-line tick), catching the hourly
+  background scheduler's refreshes without a page reload. A manual "Refresh" click doesn't
+  need polling at all — `POST .../refresh` already blocks until the ingest finishes and
+  returns the final status directly. This resolves Open Question #3 from the previous
+  session (poll-only was flagged as a real gap "once the guide UI actually needs to show
+  progress" — it does now, and polling turned out to be sufficient).
+- **No tune/record UI.** Laomedeia's version has "▶ Watch"/"⏺ Record" actions on the
+  selected-program detail panel and highlights the currently-tuned channel's row. Neither
+  exists here — playback (decision #1) is still unresolved and recordings are an explicit
+  non-v1 (decision #2) — so the detail panel is info-only (title, channel, time,
+  description), and channel cells have no click behavior.
+
+Also standalone rather than prop-driven: Laomedeia's `App.tsx` lifts Live TV's channel
+list/category selection so Guide and Live TV share one selection; there's no shared
+app-level state yet (only two other pages exist), so `EpgGuide.tsx` fetches its own
+provider/category/channel list independently — same pattern as `LiveChannels.tsx`,
+including the same stale-response guard on the channels fetch (applied from the start
+this time, having already found that exact race once).
+
+CSS required adding a handful of extra design tokens (`--bg-0` through `--bg-3`,
+`--text-dim`, `--text-faint`, `--border-strong`, `--accent-soft`, `--now-line`,
+`--radius-sm`) to `index.css` — Laomedeia's own theme system has 16 semantic tokens per
+palette; these are a minimal derived subset mapped onto this app's existing simpler
+palette, not a port of the full multi-theme system (still just System/light/dark via
+`prefers-color-scheme`, not the 8 named themes).
+
+**Verified against the real, already-ingested `sonix` guide** (1,974 channels, 103,056
+programs) via a real browser: grid renders scrolled to the current time with the now-line
+visible, real program titles/times for real channels; switching to the News category
+correctly narrows to the same 58 real channels (Yahoo Finance, ABC News, Al Jazeera, BBC
+World News, Bloomberg, C-SPAN, ...) with logos; clicking a program populates the detail
+panel with real title/time/description, past programs dimmed, selected program
+highlighted; full-text search returns real results across channels/titles/descriptions
+with correct LIVE badges on currently-airing programs. No console errors. Both packages
+typecheck and lint clean.
+
 ## Open questions
 
 1. Codec-probe/allowlist design for the hybrid playback path — what determines
@@ -284,8 +334,8 @@ renders every time.
    channel tune? cached per provider/channel?). Not designed yet.
 2. Provider feed size/refresh cost for EPG — worth measuring before accepting a third
    independent XMLTV download as a non-issue long-term.
-3. No push/live-status channel for EPG refresh progress yet (status is poll-only) — worth
-   revisiting once the guide UI actually needs to show live download/ingest progress
-   rather than just idle/error state.
-4. M3U category listing re-parses the whole playlist on every call — no caching yet.
+3. M3U category listing re-parses the whole playlist on every call — no caching yet.
    Revisit if a real M3U playlist proves large enough to make browsing feel slow.
+4. Guide and Live TV each fetch their own provider/category/channel list independently —
+   worth lifting into shared app-level state once enough pages exist to make the
+   duplication actually cost something (extra requests, selections falling out of sync).
