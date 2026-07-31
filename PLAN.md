@@ -119,10 +119,16 @@ consistent tooling across all three, less context-switching.
 
 Initial pnpm workspace scaffolded directly off iptv-scheduler's own scaffold commit
 (`43bcd3c`) as a template — root `package.json`/`pnpm-workspace.yaml`/`tsconfig.base.json`,
-`server/` (Fastify health check, Drizzle client pointed at a placeholder `schema.ts`,
+`server/` (Fastify health check on port 4300 — 3000/4000-range already used by
+iptv-recorder/iptv-scheduler, Drizzle client pointed at a placeholder `schema.ts`,
 `drizzle.config.ts`), `web/` (Vite + React, dev-server proxy to `/api`, a health-check
 ping in `App.tsx`). No routes, no DB tables, no crypto/credential storage yet — those
 land with the first real feature, same as both sibling projects did.
+
+Verified booting end-to-end: `pnpm install` clean, server's `/health` and `/health/db`
+both return `{"status":"ok"}`, the Vite dev server's `/api` proxy reaches the Fastify
+backend (`curl localhost:5173/api/health` → `ok`), and both packages typecheck
+(`tsc --noEmit` / `tsc -b`) with zero errors.
 
 ## Open questions
 
