@@ -7,6 +7,7 @@ import { configRoutes } from "./routes/config.js";
 import { providerRoutes } from "./routes/providers.js";
 import { epgRoutes } from "./routes/epg.js";
 import { liveRoutes } from "./routes/live.js";
+import { vodRoutes } from "./routes/vod.js";
 import { playbackRoutes } from "./routes/playback.js";
 import { startEpgRefresh, stopEpgRefresh } from "./epg/index.js";
 import { startHlsSweep, stopHlsSweep, stopAllSessions } from "./playback/hlsSession.js";
@@ -53,6 +54,7 @@ await app.register(configRoutes);
 await app.register(providerRoutes);
 await app.register(epgRoutes);
 await app.register(liveRoutes);
+await app.register(vodRoutes);
 await app.register(playbackRoutes);
 
 app.addHook("onClose", async () => {

@@ -5,9 +5,10 @@ import { RecorderConnection } from "./pages/RecorderConnection";
 import { LocalProviders } from "./pages/LocalProviders";
 import { LiveChannels } from "./pages/LiveChannels";
 import { EpgGuide } from "./pages/EpgGuide";
+import { VodBrowser } from "./pages/VodBrowser";
 
 type LoadState = ProviderSourceConfig | "loading" | "error";
-type Tab = "providers" | "live" | "guide";
+type Tab = "providers" | "live" | "guide" | "vod";
 
 // PLAN.md "Credentials Model" — provider-source mode is the one global
 // blocking state everything else sits behind, the same way iptv-scheduler
@@ -59,6 +60,9 @@ function App() {
           <button type="button" className={tab === "guide" ? "active" : ""} onClick={() => setTab("guide")}>
             Guide
           </button>
+          <button type="button" className={tab === "vod" ? "active" : ""} onClick={() => setTab("vod")}>
+            Movies
+          </button>
         </nav>
       )}
       {showChoice && <ProviderSourceChoice onChosen={handleChosen} />}
@@ -74,6 +78,7 @@ function App() {
           <EpgGuide />
         </div>
       )}
+      {!showChoice && configured && tab === "vod" && <VodBrowser />}
     </main>
   );
 }

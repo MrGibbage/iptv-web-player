@@ -1,0 +1,228 @@
+/* Ported from Laomedeia (src/app.css, the .vod-* block). Trimmed: no
+   progress-bar classes (.vod-poster-progress*) — this app has no resume/
+   watch-progress tracking yet, unlike Laomedeia. Adapted from Laomedeia's
+   full-height flex app-shell to this app's normal scrolling page layout —
+   .vod-panel/.vod-sidebar no longer force min-height:0/100% fill. */
+
+.vod-panel {
+  display: flex;
+  gap: 0;
+  margin-top: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.vod-sidebar {
+  width: 220px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border);
+  background: var(--bg-1);
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.vod-category-list {
+  padding: 4px 0;
+}
+
+.vod-category-row {
+  padding: 8px 14px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  margin: 1px 6px;
+}
+
+.vod-category-row:hover {
+  background: var(--bg-2);
+}
+
+.vod-category-row.selected {
+  background: var(--accent-soft);
+  color: var(--text-h);
+}
+
+.vod-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.vod-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.vod-search {
+  flex: 1;
+  min-width: 0;
+}
+
+.vod-scope-toggle {
+  display: flex;
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.vod-scope-btn {
+  padding: 4px 10px;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  border: none;
+  border-radius: 0;
+  background: transparent;
+}
+
+.vod-scope-btn:not(:last-child) {
+  border-right: 1px solid var(--border);
+}
+
+.vod-scope-btn.active {
+  color: var(--text-h);
+  background: var(--accent-soft);
+}
+
+.vod-poster-category {
+  font-size: 0.72rem;
+  color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: -4px;
+}
+
+.vod-grid {
+  flex: 1;
+  min-height: 0;
+  max-height: 70vh;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 16px;
+  padding: 16px;
+  align-content: start;
+}
+
+.vod-poster-card {
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.vod-poster-img {
+  width: 100%;
+  aspect-ratio: 2 / 3;
+  object-fit: cover;
+  border-radius: var(--radius);
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  transition: border-color 0.15s;
+}
+
+.vod-poster-card:hover .vod-poster-img {
+  border-color: var(--border-strong);
+}
+
+.vod-poster-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-dim);
+  font-size: 2rem;
+  font-weight: 600;
+}
+
+.vod-poster-title {
+  font-size: 0.82rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.vod-detail-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.vod-detail-card {
+  position: relative;
+  display: flex;
+  gap: 22px;
+  width: min(720px, 90vw);
+  max-height: 80vh;
+  overflow-y: auto;
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 26px;
+  text-align: left;
+}
+
+.vod-detail-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  padding: 4px 9px;
+  font-size: 0.9rem;
+  line-height: 1;
+}
+
+.vod-detail-poster {
+  width: 180px;
+  flex-shrink: 0;
+  aspect-ratio: 2 / 3;
+  object-fit: cover;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+}
+
+.vod-detail-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.vod-detail-title {
+  margin: 0 0 8px;
+  font-size: 1.2rem;
+  padding-right: 24px;
+}
+
+.vod-detail-meta {
+  display: flex;
+  gap: 14px;
+  font-size: 0.82rem;
+  color: var(--text-dim);
+  margin-bottom: 12px;
+}
+
+.vod-detail-plot {
+  font-size: 0.87rem;
+  line-height: 1.5;
+  margin: 0 0 10px;
+}
+
+.vod-detail-cast {
+  font-size: 0.82rem;
+  color: var(--text-dim);
+  margin: 0 0 6px;
+}
+
+.vod-detail-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 16px;
+}

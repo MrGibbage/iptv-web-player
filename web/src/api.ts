@@ -114,3 +114,29 @@ export type EpgBounds = {
   minStartMs: number | null;
   maxStopMs: number | null;
 };
+
+export type VodCategory = {
+  categoryId: string;
+  categoryName: string;
+};
+
+export type VodStream = {
+  streamId: number;
+  name: string;
+  streamIcon: string | null;
+  categoryId: string;
+  containerExtension: string;
+  rating: number | null;
+  added: string | null;
+};
+
+export type VodInfo = {
+  plot: string | null;
+  cast: string | null;
+  director: string | null;
+  genre: string | null;
+  releaseDate: string | null;
+  duration: string | null;
+  rating: number | null;
+  containerExtension: string;
+};

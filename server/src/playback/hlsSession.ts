@@ -2,8 +2,6 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { mkdir, rm, readFile } from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
-import { resolveLiveStreamUrl } from "../liveChannels.js";
-import { providerCacheKey } from "../providerSource.js";
 import { getCodecDecision } from "./codecProbe.js";
 import { log } from "../logger.js";
 
@@ -12,8 +10,20 @@ import { log } from "../logger.js";
 // outputting HLS with MPEG-TS segments so recorder's own -c copy -f mpegts
 // lesson keeps applying regardless of audio codec. Video is copied when the
 // codec probe says it's browser-playable (see ./codecProbe.ts), re-encoded
-// otherwise. This is live viewing, not DVR: a sliding segment window, no
-// retention.
+// otherwise.
+//
+// Two session kinds, PLAN.md "VOD playback":
+//   - 'live': a sliding segment window, no retention (delete_segments,
+//     hls_list_size 6) — this is live viewing, not DVR.
+//   - 'vod': the source has a real, finite length. No sliding window
+//     (hls_list_size 0 — keep every segment in the manifest), and no
+//     delete_segments — ffmpeg naturally appends #EXT-X-ENDLIST once the
+//     whole file is processed, at which point hls.js reports the correct
+//     total duration instead of the "keeps climbing" live behavior.
+// This module doesn't resolve the stream URL itself — the caller (routes/
+// playback.ts) does that via ../liveChannels.ts or ../vod.ts depending on
+// kind, and passes the resolved URL straight in. Keeps this module
+// agnostic to how a URL was resolved, not just to which kind it serves.
 //
 // No auto-restart on ffmpeg failure — mirrors Laomedeia's own explicit
 // decision (PLAN.md/SDD there: "an automatic kill-and-relaunch was tried
@@ -25,19 +35,21 @@ import { log } from "../logger.js";
 
 const HLS_DATA_DIR = process.env.HLS_DATA_DIR ?? "./data/hls-sessions";
 const SEGMENT_DURATION_S = 4;
-const PLAYLIST_SIZE = 6;
+const LIVE_PLAYLIST_SIZE = 6;
 const STARTUP_TIMEOUT_MS = 15_000;
 const STARTUP_POLL_MS = 300;
 const IDLE_TIMEOUT_MS = 30_000;
 const SWEEP_INTERVAL_MS = 10_000;
 const STDERR_TAIL_MAX_CHARS = 4000;
 
+type SessionKind = "live" | "vod";
 type SessionStatus = "starting" | "running" | "error";
 
 interface Session {
   id: string;
   providerId: number;
-  channelId: string;
+  mediaId: string;
+  kind: SessionKind;
   dir: string;
   process: ChildProcess;
   lastAccessMs: number;
@@ -54,15 +66,27 @@ function sleep(ms: number): Promise<void> {
 
 export class PlaybackStartError extends Error {}
 
-export async function startSession(providerId: number, channelId: string): Promise<{ sessionId: string; playlistUrl: string }> {
-  const providerKey = providerCacheKey(providerId);
-  const streamUrl = await resolveLiveStreamUrl(providerId, channelId);
-  const { videoPassthrough, audioPassthrough } = await getCodecDecision(providerKey, channelId, streamUrl);
+export interface StartSessionOptions {
+  providerId: number;
+  mediaId: string;
+  streamUrl: string;
+  kind: SessionKind;
+  // Cache key for ./codecProbe.ts — providerSource.providerCacheKey() for
+  // live channels; VOD titles don't need the recorder-vs-local namespacing
+  // (a numeric Xtream vod streamId can't collide with anything else the
+  // way channel ids across provider sources could), so routes/vod.ts just
+  // passes a plain "vod-<providerId>" prefix instead.
+  codecCacheKey: string;
+}
+
+export async function startSession(opts: StartSessionOptions): Promise<{ sessionId: string; playlistUrl: string }> {
+  const { providerId, mediaId, streamUrl, kind, codecCacheKey } = opts;
+  const { videoPassthrough, audioPassthrough } = await getCodecDecision(codecCacheKey, mediaId, streamUrl);
 
   const sessionId = crypto.randomUUID();
   const dir = path.join(HLS_DATA_DIR, sessionId);
   await mkdir(dir, { recursive: true });
-  log("playback", `${sessionId}: starting provider=${providerId} channel=${channelId} video=${videoPassthrough ? "copy" : "transcode"} audio=${audioPassthrough ? "copy" : "transcode"}`);
+  log("playback", `${sessionId}: starting kind=${kind} provider=${providerId} media=${mediaId} video=${videoPassthrough ? "copy" : "transcode"} audio=${audioPassthrough ? "copy" : "transcode"}`);
 
   const args = [
     // Input-side reconnect options — real IPTV streams hiccup; without
@@ -88,9 +112,9 @@ export async function startSession(providerId: number, channelId: string): Promi
     "-hls_time",
     String(SEGMENT_DURATION_S),
     "-hls_list_size",
-    String(PLAYLIST_SIZE),
+    kind === "live" ? String(LIVE_PLAYLIST_SIZE) : "0",
     "-hls_flags",
-    "delete_segments+append_list",
+    kind === "live" ? "delete_segments+append_list" : "append_list",
     "-hls_segment_type",
     "mpegts",
     "-hls_segment_filename",
@@ -102,7 +126,8 @@ export async function startSession(providerId: number, channelId: string): Promi
   const session: Session = {
     id: sessionId,
     providerId,
-    channelId,
+    mediaId,
+    kind,
     dir,
     process: proc,
     lastAccessMs: Date.now(),

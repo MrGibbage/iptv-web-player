@@ -25,6 +25,7 @@
   --accent-soft: var(--accent-bg);
   --now-line: #e5484d;
   --radius-sm: 4px;
+  --radius: 8px;
 
   --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
   --heading: system-ui, 'Segoe UI', Roboto, sans-serif;
@@ -69,6 +70,7 @@
     --accent-soft: var(--accent-bg);
     --now-line: #ff6369;
     --radius-sm: 4px;
+    --radius: 8px;
   }
 
   #social .button-icon {

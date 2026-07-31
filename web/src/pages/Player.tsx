@@ -4,10 +4,10 @@ import { api } from "../api";
 
 type Props = {
   providerId: number;
-  channelId: string;
+  mediaId: string;
   channelName: string;
   onClose: () => void;
-};
+} & ({ kind: "live" } | { kind: "vod"; containerExtension: string });
 
 type PlayerState = "starting" | "playing" | "error";
 
@@ -44,7 +44,9 @@ const START_DEBOUNCE_MS = 50;
 // with predictable, capped memory use instead.
 const BACK_BUFFER_SECONDS = 600;
 
-export function Player({ providerId, channelId, channelName, onClose }: Props) {
+export function Player(props: Props) {
+  const { providerId, mediaId, channelName, onClose, kind } = props;
+  const containerExtension = props.kind === "vod" ? props.containerExtension : undefined;
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
   const sessionIdRef = useRef<string | null>(null);
@@ -59,8 +61,14 @@ export function Player({ providerId, channelId, channelName, onClose }: Props) {
 
     const startTimer = setTimeout(() => {
       if (cancelled) return;
-      api
-        .post<{ sessionId: string; playlistUrl: string }>(`/providers/${providerId}/live/stream`, { channelId })
+      const startCall =
+        kind === "live"
+          ? api.post<{ sessionId: string; playlistUrl: string }>(`/providers/${providerId}/live/stream`, { channelId: mediaId })
+          : api.post<{ sessionId: string; playlistUrl: string }>(`/providers/${providerId}/vod/stream`, {
+              vodId: Number(mediaId),
+              containerExtension,
+            });
+      startCall
         .then(({ sessionId: id, playlistUrl }) => {
           if (cancelled) {
             api.delete(`/stream/${id}`).catch(() => {});
@@ -109,7 +117,7 @@ export function Player({ providerId, channelId, channelName, onClose }: Props) {
         api.delete(`/stream/${sessionIdRef.current}`).catch(() => {});
       }
     };
-  }, [providerId, channelId]);
+  }, [providerId, mediaId, kind, containerExtension]);
 
   // Polls the session's own status so a server-side failure (ffmpeg died,
   // provider dropped the stream) surfaces its real reason here — found via

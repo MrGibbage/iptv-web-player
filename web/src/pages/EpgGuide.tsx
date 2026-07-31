@@ -497,7 +497,7 @@ export function EpgGuide() {
       )}
 
       {playing && providerId !== null && (
-        <Player providerId={providerId} channelId={playing.channelId} channelName={playing.name} onClose={() => setPlaying(null)} />
+        <Player providerId={providerId} kind="live" mediaId={playing.channelId} channelName={playing.name} onClose={() => setPlaying(null)} />
       )}
     </div>
   );

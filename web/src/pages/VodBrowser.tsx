@@ -1,0 +1,298 @@
+import { useEffect, useState } from "react";
+import { api, type EffectiveProvider, type VodCategory, type VodInfo, type VodStream } from "../api";
+import { Player } from "./Player";
+import "./vod.css";
+
+// Ported from Laomedeia (src/components/VodBrowser.tsx) — same category
+// sidebar + poster grid + "search this category vs. search all" scope
+// toggle + detail modal shape. Two things dropped, both real Laomedeia
+// features this app doesn't have yet: resume/watch-progress tracking (no
+// progress store built here), and provider is fetched independently rather
+// than lifted from shared app state — same standalone pattern as
+// LiveChannels.tsx/EpgGuide.tsx, including the same stale-response guard
+// on every fetch (a real bug found and fixed once already — see PLAN.md
+// "Live TV channel browsing" — applied consistently from the start here).
+export function VodBrowser() {
+  const [providers, setProviders] = useState<EffectiveProvider[] | "loading" | "error">("loading");
+  const [providerId, setProviderId] = useState<number | null>(null);
+
+  const [categories, setCategories] = useState<VodCategory[] | "loading" | "error">("loading");
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
+
+  const [streams, setStreams] = useState<VodStream[] | "loading" | "error">("loading");
+  const [filterText, setFilterText] = useState("");
+  const [searchScope, setSearchScope] = useState<"category" | "all">("category");
+
+  const [allStreams, setAllStreams] = useState<VodStream[] | null>(null);
+  const [allStreamsLoading, setAllStreamsLoading] = useState(false);
+  const [allStreamsError, setAllStreamsError] = useState<string>();
+
+  const [selectedItem, setSelectedItem] = useState<VodStream | null>(null);
+  const [info, setInfo] = useState<VodInfo | null>(null);
+  const [infoLoading, setInfoLoading] = useState(false);
+  const [playing, setPlaying] = useState<VodStream | null>(null);
+
+  useEffect(() => {
+    api
+      .get<EffectiveProvider[]>("/effective-providers")
+      .then((list) => {
+        setProviders(list);
+        if (list.length > 0) setProviderId(list[0].id);
+      })
+      .catch(() => setProviders("error"));
+  }, []);
+
+  useEffect(() => {
+    if (providerId === null) return;
+    setCategories("loading");
+    setSelectedCategoryId(null);
+    let current = true;
+    api
+      .get<VodCategory[]>(`/providers/${providerId}/vod/categories`)
+      .then((cats) => {
+        if (!current) return;
+        setCategories(cats);
+        if (cats.length > 0) setSelectedCategoryId(cats[0].categoryId);
+      })
+      .catch(() => {
+        if (current) setCategories("error");
+      });
+    return () => {
+      current = false;
+    };
+  }, [providerId]);
+
+  useEffect(() => {
+    if (providerId === null || !selectedCategoryId) return;
+    setStreams("loading");
+    let current = true;
+    api
+      .get<VodStream[]>(`/providers/${providerId}/vod/streams?categoryId=${encodeURIComponent(selectedCategoryId)}`)
+      .then((items) => {
+        if (current) setStreams(items);
+      })
+      .catch(() => {
+        if (current) setStreams("error");
+      });
+    return () => {
+      current = false;
+    };
+  }, [providerId, selectedCategoryId]);
+
+  useEffect(() => {
+    if (!selectedItem || providerId === null) {
+      setInfo(null);
+      return;
+    }
+    let current = true;
+    setInfoLoading(true);
+    api
+      .get<VodInfo>(`/providers/${providerId}/vod/streams/${selectedItem.streamId}`)
+      .then((result) => {
+        if (current) setInfo(result);
+      })
+      .catch(() => {
+        if (current) setInfo(null);
+      })
+      .finally(() => {
+        if (current) setInfoLoading(false);
+      });
+    return () => {
+      current = false;
+    };
+  }, [providerId, selectedItem]);
+
+  const text = filterText.trim().toLowerCase();
+  const searchingAll = Boolean(text) && searchScope === "all";
+
+  // Lazy-loads the whole library only when the user actually searches with
+  // scope=all — a real account's full VOD library can run in the tens of
+  // thousands of titles (see PLAN.md), not worth fetching by default.
+  useEffect(() => {
+    if (providerId === null || !searchingAll || allStreams !== null || allStreamsLoading) return;
+    let current = true;
+    setAllStreamsLoading(true);
+    setAllStreamsError(undefined);
+    api
+      .get<VodStream[]>(`/providers/${providerId}/vod/streams`)
+      .then((items) => {
+        if (current) setAllStreams(items);
+      })
+      .catch((err) => {
+        if (current) setAllStreamsError(err instanceof Error ? err.message : String(err));
+      })
+      .finally(() => {
+        if (current) setAllStreamsLoading(false);
+      });
+    return () => {
+      current = false;
+    };
+    // Deliberately omits allStreams/allStreamsLoading — see Laomedeia's own
+    // identical comment: setAllStreamsLoading(true) would otherwise
+    // retrigger this effect and cancel its own in-flight request.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [providerId, searchingAll]);
+
+  const categoryNameById = new Map(categories !== "loading" && categories !== "error" ? categories.map((c) => [c.categoryId, c.categoryName]) : []);
+
+  const baseList = streams === "loading" || streams === "error" ? [] : streams;
+  const visibleStreams = !text ? baseList : searchingAll ? (allStreams ?? []).filter((s) => s.name.toLowerCase().includes(text)) : baseList.filter((s) => s.name.toLowerCase().includes(text));
+
+  if (providers === "loading") return <p>Loading providers…</p>;
+  if (providers === "error") return <p className="error">Could not load providers.</p>;
+  if (providers.length === 0) return <p className="muted">No providers configured yet.</p>;
+
+  return (
+    <section className="page">
+      <div className="page-header">
+        <h2>Movies</h2>
+        {providers.length > 1 && (
+          <select value={providerId ?? ""} onChange={(e) => setProviderId(Number(e.target.value))}>
+            {providers.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+        )}
+      </div>
+
+      <div className="vod-panel">
+        <aside className="vod-sidebar">
+          {categories === "loading" ? (
+            <p className="muted" style={{ padding: 14 }}>
+              Loading categories…
+            </p>
+          ) : categories === "error" ? (
+            <p className="error" style={{ padding: 14 }}>
+              Failed to load categories.
+            </p>
+          ) : (
+            <div className="vod-category-list">
+              {categories.map((cat) => (
+                <div key={cat.categoryId} className={`vod-category-row${cat.categoryId === selectedCategoryId ? " selected" : ""}`} onClick={() => setSelectedCategoryId(cat.categoryId)}>
+                  {cat.categoryName}
+                </div>
+              ))}
+            </div>
+          )}
+        </aside>
+
+        <div className="vod-main">
+          <div className="vod-toolbar">
+            <input className="vod-search" type="search" placeholder="Filter titles…" value={filterText} onChange={(e) => setFilterText(e.target.value)} />
+            {text && (
+              <div className="vod-scope-toggle">
+                <button type="button" className={`vod-scope-btn${searchScope === "category" ? " active" : ""}`} onClick={() => setSearchScope("category")}>
+                  This category
+                </button>
+                <button type="button" className={`vod-scope-btn${searchScope === "all" ? " active" : ""}`} onClick={() => setSearchScope("all")}>
+                  All
+                </button>
+              </div>
+            )}
+          </div>
+
+          {streams === "loading" ? (
+            <p className="muted" style={{ padding: 14 }}>
+              Loading titles…
+            </p>
+          ) : streams === "error" ? (
+            <p className="error" style={{ padding: 14 }}>
+              Failed to load titles.
+            </p>
+          ) : searchingAll && allStreamsLoading ? (
+            <p className="muted" style={{ padding: 14 }}>
+              Loading full library…
+            </p>
+          ) : searchingAll && allStreamsError ? (
+            <p className="error" style={{ padding: 14 }}>
+              Failed to load full library: {allStreamsError}
+            </p>
+          ) : visibleStreams.length === 0 ? (
+            <p className="muted" style={{ padding: 14 }}>
+              No titles match.
+            </p>
+          ) : (
+            <div className="vod-grid">
+              {visibleStreams.map((item) => (
+                <div key={item.streamId} className="vod-poster-card" onClick={() => setSelectedItem(item)}>
+                  {item.streamIcon ? (
+                    <img className="vod-poster-img" src={item.streamIcon} alt="" loading="lazy" />
+                  ) : (
+                    <div className="vod-poster-img vod-poster-fallback">{item.name.charAt(0).toUpperCase()}</div>
+                  )}
+                  <div className="vod-poster-title" title={item.name}>
+                    {item.name}
+                  </div>
+                  {searchingAll && <div className="vod-poster-category">{categoryNameById.get(item.categoryId) ?? ""}</div>}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {selectedItem && (
+        <div className="vod-detail-backdrop" onClick={() => setSelectedItem(null)}>
+          <div className="vod-detail-card" onClick={(e) => e.stopPropagation()}>
+            <button type="button" className="vod-detail-close" onClick={() => setSelectedItem(null)}>
+              ✕
+            </button>
+            {selectedItem.streamIcon ? (
+              <img className="vod-detail-poster" src={selectedItem.streamIcon} alt="" />
+            ) : (
+              <div className="vod-detail-poster vod-poster-fallback">{selectedItem.name.charAt(0).toUpperCase()}</div>
+            )}
+            <div className="vod-detail-info">
+              <h2 className="vod-detail-title">{selectedItem.name}</h2>
+              {infoLoading ? (
+                <p className="muted">Loading details…</p>
+              ) : (
+                <>
+                  <div className="vod-detail-meta">
+                    {(info?.rating ?? selectedItem.rating) != null && <span>★ {(info?.rating ?? selectedItem.rating)?.toFixed(1)}</span>}
+                    {info?.releaseDate && <span>{info.releaseDate.slice(0, 4)}</span>}
+                    {info?.genre && <span>{info.genre}</span>}
+                  </div>
+                  {info?.plot && <p className="vod-detail-plot">{info.plot}</p>}
+                  {info?.cast && (
+                    <p className="vod-detail-cast">
+                      <strong>Cast:</strong> {info.cast}
+                    </p>
+                  )}
+                  {info?.director && (
+                    <p className="vod-detail-cast">
+                      <strong>Director:</strong> {info.director}
+                    </p>
+                  )}
+                </>
+              )}
+              <div className="vod-detail-actions">
+                <button
+                  onClick={() => {
+                    setPlaying(selectedItem);
+                    setSelectedItem(null);
+                  }}
+                >
+                  ▶ Play
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {playing && providerId !== null && (
+        <Player
+          providerId={providerId}
+          kind="vod"
+          mediaId={String(playing.streamId)}
+          containerExtension={playing.containerExtension}
+          channelName={playing.name}
+          onClose={() => setPlaying(null)}
+        />
+      )}
+    </section>
+  );
+}

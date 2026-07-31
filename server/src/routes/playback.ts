@@ -1,16 +1,31 @@
 import type { FastifyInstance } from "fastify";
 import { readFile } from "node:fs/promises";
 import { startSession, stopSession, touchSession, getSessionFilePath, getSessionStatus } from "../playback/hlsSession.js";
+import { resolveLiveStreamUrl } from "../liveChannels.js";
+import { resolveVodStreamUrl } from "../vod.js";
+import { providerCacheKey } from "../providerSource.js";
 
 // PLAN.md "Playback architecture" — starting a session needs provider
 // context (/providers/:id/...), but once started a session is addressed
 // purely by its own opaque id; nothing else needs to know which provider or
-// channel it came from.
+// channel it came from. URL resolution happens here (not in
+// playback/hlsSession.ts), branching on live vs. VOD, so that module stays
+// agnostic to how a stream URL came to be.
 
 const startStreamBodySchema = {
   type: "object",
   required: ["channelId"],
   properties: { channelId: { type: "string" } },
+  additionalProperties: false,
+} as const;
+
+const startVodBodySchema = {
+  type: "object",
+  required: ["vodId", "containerExtension"],
+  properties: {
+    vodId: { type: "integer" },
+    containerExtension: { type: "string", minLength: 1 },
+  },
   additionalProperties: false,
 } as const;
 
@@ -51,7 +66,50 @@ export async function playbackRoutes(app: FastifyInstance) {
     },
     async (request, reply) => {
       try {
-        const result = await startSession(Number(request.params.id), request.body.channelId);
+        const providerId = Number(request.params.id);
+        const channelId = request.body.channelId;
+        const streamUrl = await resolveLiveStreamUrl(providerId, channelId);
+        const result = await startSession({
+          providerId,
+          mediaId: channelId,
+          streamUrl,
+          kind: "live",
+          codecCacheKey: providerCacheKey(providerId),
+        });
+        reply.code(201);
+        return result;
+      } catch (err) {
+        return reply.code(400).send({ error: err instanceof Error ? err.message : String(err) });
+      }
+    },
+  );
+
+  app.post<{ Params: { id: string }; Body: { vodId: number; containerExtension: string } }>(
+    "/providers/:id/vod/stream",
+    {
+      schema: {
+        tags: ["playback"],
+        summary: "Start an HLS playback session for a VOD title",
+        description: "Same blocking-until-ready behavior as the live endpoint. containerExtension comes from whatever VOD list/detail call the client already made — see routes/vod.ts.",
+        body: startVodBodySchema,
+        response: { 201: { $ref: "StreamSession#" }, 400: { $ref: "Error#" } },
+      },
+    },
+    async (request, reply) => {
+      try {
+        const providerId = Number(request.params.id);
+        const { vodId, containerExtension } = request.body;
+        const streamUrl = await resolveVodStreamUrl(providerId, vodId, containerExtension);
+        const result = await startSession({
+          providerId,
+          mediaId: String(vodId),
+          streamUrl,
+          kind: "vod",
+          // VOD streamIds are Xtream-only and numeric — no recorder-vs-local
+          // namespacing collision risk the way live channelIds have across
+          // provider sources, so a plain per-provider prefix is enough.
+          codecCacheKey: `vod-${providerId}`,
+        });
         reply.code(201);
         return result;
       } catch (err) {

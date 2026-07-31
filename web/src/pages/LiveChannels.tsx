@@ -101,7 +101,7 @@ export function LiveChannels() {
       </div>
 
       {playing && providerId !== null && (
-        <Player providerId={providerId} channelId={playing.channelId} channelName={playing.name} onClose={() => setPlaying(null)} />
+        <Player providerId={providerId} kind="live" mediaId={playing.channelId} channelName={playing.name} onClose={() => setPlaying(null)} />
       )}
 
       {categories === "error" && <p className="error">Could not load categories.</p>}

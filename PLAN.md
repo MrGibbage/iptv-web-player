@@ -509,14 +509,56 @@ ceiling instead of an implicit one. Verified playback still starts and plays cor
 with the option set (`video.readyState === 4`, advancing `currentTime`, single session
 per Watch click, no unexpected exit).
 
-**Not yet built: VOD/Series playback.** Worth noting for whenever that lands — it
-shouldn't reuse this live-HLS-sliding-window approach at all. VOD has a real, known
-duration up front, so the natural design is either serving the file directly with HTTP
-`Range` support (if already browser-compatible — normal `<video>` seeking, accurate
-duration, no HLS needed) or, if transcoding is required, a proper VOD-style HLS playlist
-with a real `#EXT-X-ENDLIST` and the correct fixed duration from the start. The "duration
-keeps climbing" behavior above is specific to not knowing a live stream's endpoint in
-advance; VOD wouldn't exhibit it.
+## VOD (Movies) browsing + playback (2026-08-01)
+
+Built faster than expected by deliberately **not** following the "VOD shouldn't reuse the
+live-HLS approach" note above. That note was right about the *ideal* design (direct
+`Range`-proxying for already-compatible files, no HLS at all) but wrong about what to
+actually build first: reusing `hlsSession.ts`'s already-proven machinery — codec probing,
+session lifecycle, logging, cleanup — got a fully working VOD player built in one pass
+instead of standing up a second, parallel playback system. The one real change needed was
+generalizing `startSession()` to a `kind: "live" | "vod"` option:
+
+- **Live**: sliding window, `delete_segments`, `hls_list_size 6` (unchanged).
+- **VOD**: no sliding window — `hls_list_size 0` (keep every segment in the manifest) and
+  no `delete_segments`. ffmpeg naturally appends `#EXT-X-ENDLIST` once the whole file is
+  processed, at which point hls.js reports the real, correct duration instead of the
+  "keeps climbing" live behavior. Verified on a real title: MEDIA-SEQUENCE stays at 0,
+  segment count only grows (12 segments at 8s in, 29 at 16s in — a real IPTV VOD source
+  can be copy-remuxed well faster than real-time), never shrinks.
+- `startSession()` no longer resolves stream URLs itself — that decoupling (planned
+  ahead of time, not a refactor forced by VOD) let `routes/playback.ts` resolve either a
+  live channel URL (`liveChannels.ts`) or a VOD URL (`vod.ts`) and hand `hlsSession.ts` a
+  plain string, keeping it agnostic to *how* a URL came to be.
+- **Backend**: `worker/xtreamVod.ts` (Xtream's VOD API — categories/streams/info/URL
+  builder, mirrors `worker/xtreamLive.ts`'s structure), `vod.ts` (the unifying layer —
+  Xtream-only, matching Laomedeia's own scope; M3U has no VOD concept of its own to
+  unify against), `routes/vod.ts` (categories/streams/details), and a new
+  `POST /providers/:id/vod/stream` route alongside the existing live one.
+- **Frontend**: `VodBrowser.tsx`, ported closely from Laomedeia's own
+  `VodBrowser.tsx` — category sidebar, poster grid, "search this category vs. search all"
+  scope toggle (the "all" scope lazy-loads the entire library only on demand — a real
+  account's full VOD library can run in the tens of thousands of titles, per Laomedeia's
+  own PLAN.md), and a detail modal (poster, rating, year, genre, plot, cast, director).
+  Dropped: resume/watch-progress tracking — a real Laomedeia feature this app has no
+  progress store for yet. `Player.tsx` generalized to a discriminated `kind` prop
+  (`{kind:'live'}` vs `{kind:'vod', containerExtension}`) rather than a second component,
+  since everything else about playing it (hls.js setup, status polling, cleanup-on-unmount)
+  is identical.
+
+**Verified end-to-end against the real `sonix` account**: real categories (4K Movies,
+Top IMDB/Oscar Movies, ...), real posters/ratings/plots/cast from TMDB-sourced metadata,
+and actual playback confirmed via a real browser — both an `mp4`-container title (*The
+King's Speech*) and an `mkv`-container title (*Cleopatra*) played correctly through the
+same pipeline (`video.readyState === 4`, advancing `currentTime`, a real opening-titles
+frame visible in a screenshot). Both packages typecheck and lint clean, no orphaned
+ffmpeg processes after testing.
+
+**Not yet built: Series (TV Shows) and the Range-proxy path.** Series is the natural next
+increment — same VOD plumbing plus a season/episode layer. The direct-file/Range-proxy
+path from the original note is still worth doing eventually for the common case (file
+already browser-compatible) to skip spinning up ffmpeg at all, but wasn't necessary to
+ship a working VOD player today.
 
 ## Open questions
 
