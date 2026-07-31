@@ -66,3 +66,24 @@ export type AuthCheckResult = {
   error?: string;
   checkedAt: string;
 };
+
+export type EffectiveProvider = {
+  id: number;
+  name: string;
+  type: ProviderType;
+  baseUrl: string | null;
+  enabled: boolean;
+};
+
+export type LiveCategory = {
+  categoryId: string;
+  categoryName: string;
+};
+
+export type LiveChannel = {
+  channelId: string;
+  name: string;
+  streamIcon: string | null;
+  categoryId: string | null;
+  epgChannelId: string | null;
+};

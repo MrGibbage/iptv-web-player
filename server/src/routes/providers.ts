@@ -4,6 +4,7 @@ import { db } from "../db/client.js";
 import { providers } from "../db/schema.js";
 import { encrypt } from "../crypto.js";
 import { checkXtreamAuth, checkM3uPlaylist } from "../worker/xtreamAuth.js";
+import { listEffectiveProviders } from "../providerSource.js";
 
 // This app's own provider store — only meaningful when
 // providerSourceConfig.mode = 'local' (see ../db/schema.ts and
@@ -124,9 +125,47 @@ function redact(provider: typeof providers.$inferSelect) {
   return rest;
 }
 
+const effectiveProviderSchema = {
+  $id: "EffectiveProvider",
+  type: "object",
+  properties: {
+    id: { type: "integer" },
+    name: { type: "string" },
+    type: { type: "string", enum: ["xtream", "m3u"] },
+    baseUrl: { type: ["string", "null"] },
+    enabled: { type: "boolean" },
+  },
+  required: ["id", "name", "type", "baseUrl", "enabled"],
+} as const;
+
 export async function providerRoutes(app: FastifyInstance) {
   app.addSchema(providerSchema);
   app.addSchema(authCheckResultSchema);
+  app.addSchema(effectiveProviderSchema);
+
+  // The mode-aware list — recorder's providers if mode='recorder', this
+  // app's own local table if mode='local' (see ../providerSource.ts). Every
+  // browsing feature (Live TV, and eventually VOD/Series/Guide) should
+  // fetch its provider picker from here, not from the mode-specific
+  // /providers or /config/recorder/providers endpoints, so the UI never
+  // needs its own branch on provider-source mode either.
+  app.get(
+    "/effective-providers",
+    {
+      schema: {
+        tags: ["providers"],
+        summary: "List providers from whichever source is currently active",
+        response: { 200: { type: "array", items: { $ref: "EffectiveProvider#" } }, 400: { $ref: "Error#" } },
+      },
+    },
+    async (_request, reply) => {
+      try {
+        return await listEffectiveProviders();
+      } catch (err) {
+        return reply.code(400).send({ error: err instanceof Error ? err.message : String(err) });
+      }
+    },
+  );
 
   app.post<{ Body: CreateBody }>(
     "/providers",

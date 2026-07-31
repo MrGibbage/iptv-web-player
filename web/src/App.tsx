@@ -3,8 +3,10 @@ import { api, type ProviderSourceConfig } from "./api";
 import { ProviderSourceChoice } from "./pages/ProviderSourceChoice";
 import { RecorderConnection } from "./pages/RecorderConnection";
 import { LocalProviders } from "./pages/LocalProviders";
+import { LiveChannels } from "./pages/LiveChannels";
 
 type LoadState = ProviderSourceConfig | "loading" | "error";
+type Tab = "providers" | "live";
 
 // PLAN.md "Credentials Model" — provider-source mode is the one global
 // blocking state everything else sits behind, the same way iptv-scheduler
@@ -16,6 +18,11 @@ function App() {
   // without touching the persisted mode until the user actually picks one —
   // there's no "unset" server state to bounce through in between.
   const [changingSource, setChangingSource] = useState(false);
+  // Plain state, not react-router-dom yet — only two real areas exist so
+  // far (provider management, Live TV browsing). Worth switching to actual
+  // routing once there are enough pages to justify it (Guide/VOD/Series),
+  // same threshold iptv-scheduler crossed before adopting it.
+  const [tab, setTab] = useState<Tab>("providers");
 
   function refresh() {
     setConfig("loading");
@@ -33,19 +40,31 @@ function App() {
   }
 
   const showChoice = config !== "loading" && config !== "error" && (config.mode === null || changingSource);
+  const configured = config !== "loading" && config !== "error" && config.mode !== null;
 
   return (
     <main>
       <h1>iptv-web-player</h1>
       {config === "loading" && <p>Loading…</p>}
       {config === "error" && <p className="error">Could not reach iptv-web-player's own API.</p>}
+      {configured && !showChoice && (
+        <nav className="nav">
+          <button type="button" className={tab === "providers" ? "active" : ""} onClick={() => setTab("providers")}>
+            Providers
+          </button>
+          <button type="button" className={tab === "live" ? "active" : ""} onClick={() => setTab("live")}>
+            Live TV
+          </button>
+        </nav>
+      )}
       {showChoice && <ProviderSourceChoice onChosen={handleChosen} />}
-      {!showChoice && config !== "loading" && config !== "error" && config.mode === "recorder" && (
+      {!showChoice && config !== "loading" && config !== "error" && config.mode === "recorder" && tab === "providers" && (
         <RecorderConnection onChangeSource={() => setChangingSource(true)} />
       )}
-      {!showChoice && config !== "loading" && config !== "error" && config.mode === "local" && (
+      {!showChoice && config !== "loading" && config !== "error" && config.mode === "local" && tab === "providers" && (
         <LocalProviders onChangeSource={() => setChangingSource(true)} />
       )}
+      {!showChoice && configured && tab === "live" && <LiveChannels />}
     </main>
   );
 }

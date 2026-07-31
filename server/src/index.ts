@@ -6,6 +6,7 @@ import { db } from "./db/client.js";
 import { configRoutes } from "./routes/config.js";
 import { providerRoutes } from "./routes/providers.js";
 import { epgRoutes } from "./routes/epg.js";
+import { liveRoutes } from "./routes/live.js";
 import { startEpgRefresh, stopEpgRefresh } from "./epg/index.js";
 
 const app = Fastify({ logger: true });
@@ -48,6 +49,7 @@ app.get("/health/db", { schema: { tags: ["health"], summary: "DB connectivity ch
 await app.register(configRoutes);
 await app.register(providerRoutes);
 await app.register(epgRoutes);
+await app.register(liveRoutes);
 
 app.addHook("onClose", async () => {
   stopEpgRefresh();

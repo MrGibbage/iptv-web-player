@@ -227,6 +227,56 @@ configured fails cleanly with a status-level error rather than throwing; an unkn
 provider id 400s. Cache-file namespacing confirmed on disk (`epg-cache-local-1.sqlite3`,
 `epg-cache-local-2.sqlite3` — no collision). Typechecks clean.
 
+## Live TV channel browsing (2026-07-31)
+
+Category filter + channel list, unified across Xtream and M3U — discovery only, no
+playback yet (decision #1 is still unresolved, and this feature is a real prerequisite
+for it: playback needs an actual channel to tune).
+
+- `server/src/worker/xtreamLive.ts` — Live-only subset of Laomedeia's `electron/xtream.ts`
+  (`get_live_categories`/`get_live_streams`). Account validation and VOD/Series were
+  already covered elsewhere or are separate future features, not ported here.
+- `server/src/worker/m3uPlaylist.ts` — ported from iptv-scheduler's own
+  `server/src/epg/m3u.ts` almost unchanged. M3U has no category endpoint the way Xtream
+  does — `group-title` *is* the category name directly, so a channel's `channelId` is its
+  resolved stream URL (no synthetic id exists to use instead), same convention
+  iptv-recorder/iptv-scheduler already settled on for M3U.
+- `server/src/liveChannels.ts` — the unifying layer (`listLiveCategories`/
+  `listLiveChannels`), branching on `ProviderConnection.type` so routes and the web UI
+  never need to know which provider type they're looking at. For M3U, category listing
+  re-parses the whole playlist to derive distinct `group-title` values (no caching yet —
+  worth revisiting if playlists prove large enough to make repeated browsing feel slow).
+- New route: `GET /effective-providers` (in `routes/providers.ts`) — the first consumer
+  of `providerSource.listEffectiveProviders()` from *outside* that module. Every future
+  browsing feature (VOD, Series, Guide) should fetch its provider picker from here, not
+  from the mode-specific `/providers` or `/config/recorder/providers` endpoints, so the
+  UI never needs its own branch on provider-source mode either.
+- Routes: `GET /providers/:id/live/categories`, `GET /providers/:id/live/channels`
+  (optional `categoryId` query param).
+- Web UI: `LiveChannels.tsx` — provider picker (only shown when more than one provider),
+  category dropdown, channel list with logos. `App.tsx` gained its first real navigation:
+  a plain `useState` tab switch between Providers/Live TV, not react-router-dom yet — only
+  two real areas exist so far; worth switching once there are enough pages to justify it
+  (Guide/VOD/Series), the same threshold iptv-scheduler crossed before adopting it.
+
+**Verified against the real `sonix` Xtream account** (not a synthetic fixture) via
+iptv-recorder in recorder mode: 24+ real categories, a 58-channel News category with real
+names/logos (Yahoo Finance, ABC News, Al Jazeera, BBC World News, C-SPAN, CNBC, ...), and
+the full cross-reference proven end-to-end — ABC News's `epgChannelId` (45438) correctly
+resolves to real, currently-airing program data ("ABC News Live") from the EPG ingestion
+built in the previous session.
+
+**Real bug found and fixed via browser testing**, not just typecheck/lint: switching the
+category dropdown while the (much larger, slower) unfiltered "all categories" request was
+still in flight let that stale response land *after* the fast filtered one and silently
+overwrite it — the dropdown would show "US| NEWS NETWORK" selected while the list
+underneath actually rendered the full 4,518-channel unfiltered set. Confirmed by directly
+timing both requests (unfiltered: 649ms for 4,518 channels; filtered: near-instant for 58)
+before fixing. Fixed with a standard stale-closure guard (a `current` flag set false in
+the effect's cleanup) in both the categories and channels fetch effects in
+`LiveChannels.tsx`. Re-verified via the same browser test — correct 58-channel list now
+renders every time.
+
 ## Open questions
 
 1. Codec-probe/allowlist design for the hybrid playback path — what determines
@@ -237,3 +287,5 @@ provider id 400s. Cache-file namespacing confirmed on disk (`epg-cache-local-1.s
 3. No push/live-status channel for EPG refresh progress yet (status is poll-only) — worth
    revisiting once the guide UI actually needs to show live download/ingest progress
    rather than just idle/error state.
+4. M3U category listing re-parses the whole playlist on every call — no caching yet.
+   Revisit if a real M3U playlist proves large enough to make browsing feel slow.
