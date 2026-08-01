@@ -118,6 +118,7 @@ function App() {
           gets this one, unchanged. */}
       {configured && !showChoice && tab !== "guide" && (
         <nav className="nav" ref={navRef}>
+          <span className="brand">🔱 Triton</span>
           <button type="button" className="hamburger-trigger" aria-label="Menu" onClick={() => setNavOpen((v) => !v)}>
             ☰
           </button>

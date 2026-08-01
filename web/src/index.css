@@ -271,6 +271,16 @@ main {
   position: relative;
 }
 
+/* PLAN.md "Triton rename" — small, deliberately: a wordmark next to the
+   hamburger trigger on both toolbars (App.tsx's own nav, EpgGuide.tsx's
+   combined one), not a hero section or a real logo asset. */
+.brand {
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--text-h);
+  white-space: nowrap;
+}
+
 .nav-current-tab {
   font-size: 15px;
   font-weight: 600;
