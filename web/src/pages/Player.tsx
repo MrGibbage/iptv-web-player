@@ -7,17 +7,17 @@ type Props = {
   mediaId: string;
   channelName: string;
   onClose: () => void;
-  // "Compact" is the small preview-dock rendering used by the Live TV
-  // preview-then-promote flow (PLAN.md "Live TV preview") — smaller size, no
-  // native controls, and (if previewTimeoutSecs is set) an auto-close timer.
-  // Deliberately just a rendering/behavior toggle on the SAME Player
-  // instance rather than two different components: the parent flips
-  // `compact` to false to promote without changing providerId/mediaId/kind,
-  // so React reuses this instance and the running session (and its ffmpeg
-  // process) is never torn down and restarted.
+  // "Compact" is the small preview-dock rendering the Guide uses (PLAN.md
+  // "Guide-centric Live TV"): smaller size, no native controls, click (or
+  // "▶ Watch") goes fullscreen instead of playing inline. PLAN.md "Guide UI
+  // polish" (2026-08-01) removed the middle "promoted" state this used to
+  // have (a bigger-but-not-fullscreen card) and the preview auto-close timer
+  // that went with it — going bigger now means the browser's own Fullscreen
+  // API on the <video> element itself, tracked internally below, not a
+  // layout change the parent needs to know about. The preview keeps playing
+  // indefinitely otherwise: only Close, switching to a different channel
+  // (parent changes `mediaId`), or the server's own idle sweep end it.
   compact?: boolean;
-  previewTimeoutSecs?: number | null;
-  onPromote?: () => void;
 } & (
   | { kind: "live" }
   | { kind: "vod"; containerExtension: string; startPositionSecs?: number }
@@ -73,7 +73,7 @@ const BACK_BUFFER_SECONDS = 600;
 const PROGRESS_SAVE_INTERVAL_MS = 20_000;
 
 export function Player(props: Props) {
-  const { providerId, mediaId, channelName, onClose, kind, compact, previewTimeoutSecs, onPromote } = props;
+  const { providerId, mediaId, channelName, onClose, kind, compact } = props;
   const containerExtension = props.kind === "vod" || props.kind === "series" ? props.containerExtension : undefined;
   const startPositionSecs = (props.kind === "vod" || props.kind === "series") && props.startPositionSecs ? props.startPositionSecs : undefined;
   const mediaType = kind === "vod" ? "vod" : kind === "series" ? "episode" : null;
@@ -231,29 +231,32 @@ export function Player(props: Props) {
     return () => clearInterval(interval);
   }, [state, providerId, mediaId, mediaType, resumeOffsetSecs]);
 
-  // Auto-close for an unpromoted preview (PLAN.md "Live TV preview") — a
-  // user setting (see /config/player), not a hardcoded constant, since
-  // there's no single right answer for how long a preview should linger
-  // before it's considered abandoned. Purely client-driven: promoting just
-  // flips `compact` to false, which re-runs this effect and (since the
-  // guard below then returns early) clears the pending timer without
-  // touching the running session at all. If the tab/browser dies before
-  // this fires, the server's own existing idle sweep is the same backstop
-  // it already is for every other session — no server-side concept of
-  // "preview" needed on top of that.
+  // Tracks the browser's own Fullscreen API state on the <video> element
+  // (PLAN.md "Guide UI polish") rather than a boolean this component makes
+  // up itself — `document.fullscreenElement` is the actual source of truth
+  // (also flips back on Esc/back-gesture, which this component never sees
+  // as a click), and native controls only make sense to show once fullscreen
+  // actually engages, not the instant the button is clicked.
+  const [isFullscreen, setIsFullscreen] = useState(false);
   useEffect(() => {
-    if (!compact || !previewTimeoutSecs) return;
-    const timer = setTimeout(() => onClose(), previewTimeoutSecs * 1000);
-    return () => clearTimeout(timer);
-  }, [compact, previewTimeoutSecs, onClose]);
+    const video = videoRef.current;
+    if (!video) return;
+    const handler = () => setIsFullscreen(document.fullscreenElement === video);
+    document.addEventListener("fullscreenchange", handler);
+    return () => document.removeEventListener("fullscreenchange", handler);
+  }, []);
+
+  const handleFullscreen = () => {
+    videoRef.current?.requestFullscreen().catch(() => {});
+  };
 
   return (
     <div className={compact ? "card player-compact" : "card"} style={{ maxWidth: compact ? 360 : 720 }}>
       <div className="page-header">
         <h2>{channelName}</h2>
         <div className="player-header-actions">
-          {compact && onPromote && (
-            <button type="button" onClick={onPromote}>
+          {compact && (
+            <button type="button" onClick={handleFullscreen}>
               ▶ Watch
             </button>
           )}
@@ -266,8 +269,8 @@ export function Player(props: Props) {
       {state === "error" && <p className="error">Playback failed: {error}</p>}
       <video
         ref={videoRef}
-        controls={!compact}
-        onClick={compact ? onPromote : undefined}
+        controls={!compact || isFullscreen}
+        onClick={compact ? handleFullscreen : undefined}
         style={{ width: "100%", display: state === "error" ? "none" : "block", background: "#000", cursor: compact ? "pointer" : undefined }}
       />
     </div>

@@ -47,3 +47,33 @@
   font-family: var(--mono);
   font-size: 0.82rem;
 }
+
+/* StatsPopover.tsx — a small, non-blocking overlay near the Guide's preview
+   dock (see epg.css's .epg-stats-trigger), not a full-page backdrop modal:
+   it's meant to sit alongside a still-playing preview, not interrupt it.
+   Positioned to the right of the dock (into the details panel's own space)
+   rather than on top of it — the whole point is seeing the video keep
+   playing while this is open, which an overlap would defeat visually even
+   though playback itself isn't actually affected either way. */
+.stats-popover {
+  position: absolute;
+  top: 0;
+  left: calc(100% + 8px);
+  z-index: 3;
+  width: 260px;
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 12px;
+  box-sizing: border-box;
+}
+
+.stats-popover .diag-table {
+  margin-bottom: 0;
+  font-size: 0.8rem;
+}
+
+.stats-popover .diag-table td {
+  padding: 3px 6px;
+}

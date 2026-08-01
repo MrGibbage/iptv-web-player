@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { api, type EffectiveProvider, type EpgBounds, type EpgProgram, type EpgSearchResult, type EpgStatus, type LiveCategory, type LiveChannel, type PlayerSettings, type ProviderSourceConfig } from "../api";
+import { api, type EffectiveProvider, type EpgBounds, type EpgProgram, type EpgSearchResult, type EpgStatus, type LiveCategory, type LiveChannel, type ProviderSourceConfig } from "../api";
 import { Player } from "./Player";
 import { RecordDialog } from "./RecordDialog";
+import { StatsPopover } from "./StatsPopover";
 import "./epg.css";
 
 // Ported from Laomedeia (src/components/EpgGrid.tsx) — same virtualized
@@ -12,18 +13,18 @@ import "./epg.css";
 // (window.epg.*) to this app's REST API.
 //
 // PLAN.md "Guide-centric Live TV" — this is now the *only* live-viewing
-// screen; the separate preview-then-promote LiveTV.tsx built the previous
-// pass was deleted and folded in here instead, once it became clear the
-// grid itself already covers "pick a channel," leaving Live TV's plain list
-// with no distinct job. Clicking a channel cell or a program block starts a
+// screen; the separate preview-then-promote LiveTV.tsx built two passes ago
+// was deleted and folded in here instead, once it became clear the grid
+// itself already covers "pick a channel," leaving Live TV's plain list with
+// no distinct job. Clicking a channel cell or a program block starts a
 // permanent mini-player docked above the grid (`.epg-player-row`), with
-// that program's details to its right — the same `compact`/`onPromote`/
-// `previewTimeoutSecs` mechanism from that pass, just docked inline instead
-// of floating, and reused here directly rather than re-invented. The
-// selected program's channelId is an XMLTV/EPG id, a different id space
-// than the live channel's own channelId (Xtream stream_id or M3U URL) —
-// `channelsByEpgId` below is the reverse lookup from one to the other, same
-// as before.
+// that program's details to its right. PLAN.md "Guide UI polish" (2026-08-01)
+// dropped the middle "promoted" state this used to have — the dock now
+// always renders compact, and going bigger means the browser's own
+// Fullscreen API (see Player.tsx), not a layout change here. The selected
+// program's channelId is an XMLTV/EPG id, a different id space than the
+// live channel's own channelId (Xtream stream_id or M3U URL) —
+// `channelsByEpgId` below is the reverse lookup from one to the other.
 //
 // Still standalone rather than prop-driven: there's no shared app-level
 // state yet (only a few other pages exist), so this page fetches its own
@@ -72,7 +73,27 @@ interface SelectedProgram {
   channelName: string;
 }
 
-export function EpgGuide() {
+// EPG data is a fixed-size sliding window (this provider's own XMLTV feed
+// covers roughly 2.4 days total, not "a couple of days ahead of whenever we
+// last checked" — see PLAN.md "Guide UI polish") — a refresh that lands with
+// little runway left before "now" catches up to the end of that window is a
+// real, if mundane, provider-side timing thing (their feed's own coverage at
+// the moment it was fetched), not a bug to work around once, just something
+// this should self-heal from continuously. STALE_MARGIN_MS is how much
+// forward runway is considered "enough" before auto-triggering a refresh.
+const STALE_MARGIN_MS = 60 * 60 * 1000;
+
+type Props = {
+  // Lifts the "Updated Xh ago · N channels · N programs" status line up into
+  // App.tsx's own nav row (PLAN.md "Guide UI polish") — freeing a full row
+  // of vertical space here matters on a landscape tablet, where every row
+  // is scarce. Deliberately a narrow one-way readout rather than lifting
+  // this page's actual data-fetching into shared state (still "acceptable
+  // duplication for now" everywhere else, see the file header).
+  onStatusTextChange?: (text: string, isError: boolean) => void;
+};
+
+export function EpgGuide({ onStatusTextChange }: Props) {
   const [providers, setProviders] = useState<EffectiveProvider[] | "loading" | "error">("loading");
   const [providerId, setProviderId] = useState<number | null>(null);
   const [categories, setCategories] = useState<LiveCategory[] | "loading" | "error">("loading");
@@ -92,11 +113,10 @@ export function EpgGuide() {
   const [jumpTarget, setJumpTarget] = useState<{ channelId: string; timeMs: number } | null>(null);
   const lastRefreshRef = useRef<number | null>(null);
   const [previewChannel, setPreviewChannel] = useState<{ channelId: string; name: string } | null>(null);
-  const [promoted, setPromoted] = useState(false);
-  const [settings, setSettings] = useState<PlayerSettings | "loading" | "error">("loading");
-  const [timeoutInput, setTimeoutInput] = useState("");
   const [recorderMode, setRecorderMode] = useState(false);
   const [recordTarget, setRecordTarget] = useState<{ channel: LiveChannel; startMs: number; stopMs: number } | null>(null);
+  const [statsOpen, setStatsOpen] = useState(false);
+  const autoRefreshTriggeredRef = useRef(false);
 
   const dayEndMs = nextMidnight(dayStartMs);
   const dayMinutes = (dayEndMs - dayStartMs) / 60_000;
@@ -130,19 +150,6 @@ export function EpgGuide() {
         if (list.length > 0) setProviderId(list[0].id);
       })
       .catch(() => setProviders("error"));
-  }, []);
-
-  // Mini-player auto-close setting, once on mount — see Player.tsx's
-  // `previewTimeoutSecs` comment for why this lives server-side as a user
-  // setting rather than a constant.
-  useEffect(() => {
-    api
-      .get<PlayerSettings>("/config/player")
-      .then((s) => {
-        setSettings(s);
-        setTimeoutInput(String(s.previewTimeoutSecs));
-      })
-      .catch(() => setSettings("error"));
   }, []);
 
   // Recording (PLAN.md "Recording support") only exists via iptv-recorder —
@@ -231,6 +238,7 @@ export function EpgGuide() {
   useEffect(() => {
     if (providerId === null) return;
     lastRefreshRef.current = null;
+    autoRefreshTriggeredRef.current = false;
     resetProgramCache();
     setBounds(null);
     refreshStatus(providerId);
@@ -327,13 +335,12 @@ export function EpgGuide() {
   };
 
   // Starts/switches the permanent mini-player dock (PLAN.md "Guide-centric
-  // Live TV") — only resets `promoted` when actually switching to a
-  // different channel, so re-clicking the same channel's cell or another of
-  // its program blocks doesn't shrink an already-expanded player back down.
+  // Live TV") — a no-op if it's already showing this channel, so re-clicking
+  // the same channel's cell or another of its program blocks doesn't
+  // interrupt the running session.
   const startPreview = (channelId: string, name: string) => {
     if (previewChannel?.channelId !== channelId) {
       setPreviewChannel({ channelId, name });
-      setPromoted(false);
     }
   };
 
@@ -362,15 +369,6 @@ export function EpgGuide() {
     if (channel) startPreview(channel.channelId, channel.name);
   };
 
-  const saveTimeoutSetting = () => {
-    const parsed = Number(timeoutInput);
-    if (!Number.isFinite(parsed) || parsed < 5 || parsed > 300 || settings === "loading" || settings === "error") {
-      if (settings !== "loading" && settings !== "error") setTimeoutInput(String(settings.previewTimeoutSecs));
-      return;
-    }
-    api.put<PlayerSettings>("/config/player", { previewTimeoutSecs: Math.round(parsed) }).then(setSettings);
-  };
-
   const minDay = bounds?.minStartMs != null ? localMidnight(bounds.minStartMs) : null;
   const maxDay = bounds?.maxStopMs != null ? localMidnight(bounds.maxStopMs - 1) : null;
   const refreshing = status?.state === "refreshing";
@@ -389,6 +387,23 @@ export function EpgGuide() {
     });
   };
 
+  // Auto-refresh once when the cached guide doesn't reach far enough past
+  // "now" to be useful — no reason to make someone notice a blank grid and
+  // click Refresh themselves. Guarded by a ref (not state) so it fires at
+  // most once per provider selection regardless of how often the 30s status
+  // poll re-runs this effect; if the provider's own feed genuinely has no
+  // more forward data, hammering it every 30s wouldn't fix that anyway.
+  useEffect(() => {
+    if (!bounds && status === null) return;
+    if (autoRefreshTriggeredRef.current || refreshing) return;
+    const outOfRunway = bounds?.maxStopMs == null || Date.now() > bounds.maxStopMs - STALE_MARGIN_MS;
+    if (outOfRunway) {
+      autoRefreshTriggeredRef.current = true;
+      handleRefresh();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bounds, status]);
+
   const statusText = (() => {
     if (!status) return "";
     if (status.state === "refreshing") {
@@ -398,6 +413,15 @@ export function EpgGuide() {
     if (status.lastRefreshMs == null) return "Guide never refreshed";
     return `Updated ${fmtAgo(status.lastRefreshMs)} · ${status.channelCount.toLocaleString()} channels · ${status.programCount.toLocaleString()} programs`;
   })();
+
+  // Lifted to App.tsx's nav row (see the Props comment above) — cleared on
+  // unmount so switching away from this tab doesn't leave a stale Guide
+  // status sitting in the nav forever.
+  useEffect(() => {
+    onStatusTextChange?.(statusText, status?.state === "error");
+    return () => onStatusTextChange?.("", false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [statusText, status?.state]);
 
   if (providers === "loading") return <p>Loading providers…</p>;
   if (providers === "error") return <p className="error">Could not load providers.</p>;
@@ -447,33 +471,21 @@ export function EpgGuide() {
             ))}
         </select>
         <input className="epg-search-input" type="search" placeholder="Search channels, titles, descriptions…" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
-        <button onClick={handleRefresh} disabled={refreshing}>
+        <button style={{ marginLeft: "auto" }} onClick={handleRefresh} disabled={refreshing}>
           {refreshing ? "Refreshing…" : "Refresh"}
         </button>
-        <label className="epg-timeout-label">
-          Preview auto-close after
-          <input type="number" min={5} max={300} className="epg-timeout-input" value={timeoutInput} onChange={(e) => setTimeoutInput(e.target.value)} onBlur={saveTimeoutSetting} />
-          sec
-        </label>
-        <span className={`epg-status${status?.state === "error" ? " epg-status-error" : ""}`}>{statusText}</span>
       </div>
 
       <div className="epg-player-row">
         <div className="epg-player-dock">
           {previewChannel && providerId !== null ? (
-            <Player
-              providerId={providerId}
-              kind="live"
-              mediaId={previewChannel.channelId}
-              channelName={previewChannel.name}
-              compact={!promoted}
-              previewTimeoutSecs={!promoted && settings !== "loading" && settings !== "error" ? settings.previewTimeoutSecs : null}
-              onPromote={() => setPromoted(true)}
-              onClose={() => {
-                setPreviewChannel(null);
-                setPromoted(false);
-              }}
-            />
+            <>
+              <Player providerId={providerId} kind="live" mediaId={previewChannel.channelId} channelName={previewChannel.name} compact onClose={() => setPreviewChannel(null)} />
+              <button type="button" className="epg-stats-trigger" title="Stream stats" onClick={() => setStatsOpen((v) => !v)}>
+                ⓘ
+              </button>
+              {statsOpen && <StatsPopover providerId={providerId} channelId={previewChannel.channelId} onClose={() => setStatsOpen(false)} />}
+            </>
           ) : (
             <div className="epg-player-placeholder">Select a channel to preview it here.</div>
           )}

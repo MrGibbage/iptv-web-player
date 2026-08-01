@@ -898,6 +898,90 @@ session's server-side edits — exactly the gap the Diagnostics stats panel (bui
 today) was meant to surface, and it did, correctly. Cleaned up manually; the underlying gap
 (Open Question #6) is unchanged.
 
+## Guide UI polish (2026-08-01)
+
+Five fixes from real tablet screenshots (portrait and landscape), all against the Guide
+screen — the app's primary live-viewing surface, so its rough edges show up fastest there.
+
+**1. EPG auto-refresh when stale.** Real incident: a 5-hour-old refresh had 71,491 programs
+cached; a manual force-refresh immediately after produced 103,330 — a genuine ~30% gap, not
+a loading-timing artifact. Investigated rather than just building around it: this provider's
+XMLTV feed is a real, fixed-size sliding window — even a *fresh* full ingest only covers
+about 2.4 days total (confirmed via `/epg/bounds`: `maxStopMs - minStartMs` ≈ 57 hours), not
+"a couple of days ahead of whenever it was last checked." A refresh landing with little
+runway left before "now" catches up to the window's edge is a real, if mundane, provider-side
+timing thing (their feed's own coverage at the moment it happened to be fetched), not a bug
+in the ingest code — `state: "idle"` with a valid `lastRefreshMs` rules out a truncated
+download or failed ingest (both land in `state: "error"` instead, see `epg.ts`). Fix: EpgGuide
+now checks `bounds.maxStopMs` against `Date.now()` (1h margin) after every bounds fetch and
+auto-triggers a forced refresh — once per provider selection (a ref guard, not state, so the
+30s status poll doesn't retrigger it) — the same `handleRefresh()` a manual click already
+uses. Self-heals from this class of gap continuously instead of needing a human to notice a
+blank grid.
+
+**2 & 5. Preview timeout removed; "▶ Watch" now means real fullscreen.** These turned out to
+be the same underlying simplification. Previously: compact preview → click "▶ Watch" →
+`onPromote` flipped a `promoted` boolean → a bigger-but-not-fullscreen third card state,
+plus a `previewTimeoutSecs` auto-close timer for the unpromoted case (a user setting via
+`/config/player`). All of it — `player_settings` table, `getPlayerSettings`/
+`setPlayerSettings`, `GET`/`PUT /config/player`, the toolbar's "Preview auto-close after"
+input, `promoted` state, `onPromote` prop — is gone. `Player.tsx`'s "▶ Watch" button (and
+clicking the compact video itself) now calls `videoRef.current.requestFullscreen()` directly;
+`isFullscreen` is tracked off the real `document.fullscreenElement`/`fullscreenchange` event,
+not a boolean this component invents, so it also correctly reflects Esc/back-gesture exits.
+`controls={!compact || isFullscreen}` — native controls only appear once fullscreen actually
+engages. The compact dock now always plays indefinitely until Close, a different channel
+selected, or the server's idle sweep (existing backstop, unchanged). Table dropped via a real
+migration (`drizzle/0004_thick_jocasta.sql`, `DROP TABLE player_settings`), not just unused
+code left in place. Verified: clicking "▶ Watch" puts the actual `<video>` element into
+`document.fullscreenElement` (Playwright-confirmed) with zero intermediate card state.
+
+**3. Landscape tablet vertical space.** Three changes: the `<h1>iptv-web-player</h1>` heading
+is gone everywhere (App.tsx and its now-dead CSS rules) — it cost real vertical space for a
+label that added nothing once the nav row is right there. The Guide's own "Updated Xh ago ·
+N channels · N programs" status line moved out of its own toolbar row and into App.tsx's nav
+row instead (`EpgGuide` takes an `onStatusTextChange` callback, App.tsx renders it via
+`.nav-status`, cleared on unmount) — a deliberate narrow one-way lift, not shared app state,
+consistent with every other page here still fetching its own data independently. And
+`.player-compact`'s width changed from a flat `320px` to `min(320px, 34vh)` — on a normal
+desktop window this is unchanged, but on a short landscape tablet viewport it keeps the
+preview from eating a disproportionate share of the little vertical room left for the grid.
+Verified against the tablet's actual reported resolution (2560×1600 physical, tested at the
+1280×800 CSS viewport that implies): 1 grid row visible before this session's changes → 3+
+rows after.
+
+**4. Diagnostics as a non-navigating popover.** The full Diagnostics tab is a real route —
+switching to it unmounts whatever `<Player>` is running in the Guide's dock, stopping
+playback, which made it useless for "what is this stream actually doing right now." New
+`StatsPopover.tsx`: a small `position: absolute` card (not a full-page backdrop modal),
+rendered as a *sibling* of the still-mounted `<Player>` inside `.epg-player-dock`, triggered
+by a small "ⓘ" button overlaid on the dock's corner. Never touches the route/tab, so opening
+it can't stop anything — verified the video keeps visibly playing behind it. Fetches `/stats`
+every 3s while open, matches the current session by `providerId`+`channelId` (no sessionId
+plumbed out of Player.tsx for this — correlating on the same fields `/stats` already exposes
+was enough), plus a compact one-line server summary. Deliberately doesn't link over to the
+full Diagnostics tab — that link would just reintroduce the exact problem being fixed here.
+Positioned to the right of the dock (into the details panel's own empty space), not on top
+of the video — the first version overlapped the video, which defeated the visual point even
+though playback itself was never actually affected.
+
+**Also fixed in passing:** the EPG toolbar's own wrapping (a second, cause of the original
+report on 5026) — removing the timeout input and status span freed width, but at the tablet's
+actual portrait CSS width the row still wrapped by a hair (just the Refresh button, alone,
+looking like a leftover). Trimmed a few toolbar min/max-widths (day label, category select,
+search input) and gave Refresh `margin-left: auto` so it either fits on one line (confirmed at
+800px CSS width) or, if a narrower device ever wraps it again, sits deliberately right-aligned
+rather than stranded at the left margin.
+
+All five verified together via Playwright against real tablet viewport dimensions (portrait
+800×1280 and landscape 1280×800 CSS px, both at the tablet's actual 2x DPR) and the real
+sonix account: toolbar fits on one line, auto-refresh fires and completes, grid shows 3+ rows
+in landscape, fullscreen engages on the real `<video>` element, stats popover shows live
+session data without interrupting playback. Both packages typecheck and lint clean, no
+console errors anywhere in the above. Also found (not introduced by this change, same root
+cause as the earlier Diagnostics work) one more orphaned `data/hls-sessions/` directory from
+a `tsx watch` restart mid-testing — cleaned up manually, same unchanged Open Question #6.
+
 ## Open questions
 
 1. Provider feed size/refresh cost for EPG — worth measuring before accepting a third

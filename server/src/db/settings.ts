@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import { db } from "./client.js";
-import { providerSourceConfig, recorderConfig, playerSettings } from "./schema.js";
+import { providerSourceConfig, recorderConfig } from "./schema.js";
 import { encrypt } from "../crypto.js";
 
 // Singleton row, created with mode=null the first time anything asks for
@@ -47,28 +47,6 @@ export function setRecorderConfig(input: { baseUrl: string; apiKey: string }): t
       updatedAt: new Date(),
     })
     .where(eq(recorderConfig.id, current.id))
-    .returning()
-    .all();
-  return updated;
-}
-
-// Singleton row, created with default values the first time anything asks
-// for it — same pattern as the two above.
-export function getPlayerSettings(): typeof playerSettings.$inferSelect {
-  const [existing] = db.select().from(playerSettings).all();
-  if (existing) {
-    return existing;
-  }
-  const [created] = db.insert(playerSettings).values({}).returning().all();
-  return created;
-}
-
-export function setPlayerSettings(input: { previewTimeoutSecs: number }): typeof playerSettings.$inferSelect {
-  const current = getPlayerSettings();
-  const [updated] = db
-    .update(playerSettings)
-    .set({ previewTimeoutSecs: input.previewTimeoutSecs, updatedAt: new Date() })
-    .where(eq(playerSettings.id, current.id))
     .returning()
     .all();
   return updated;

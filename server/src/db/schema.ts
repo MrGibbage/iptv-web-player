@@ -96,41 +96,6 @@ export const providers = sqliteTable(
   }),
 );
 
-// Caches each channel's codec passthrough decision (PLAN.md "Playback
-// architecture") so repeat tunes skip re-probing with ffprobe. Keyed by
-// providerSource.providerCacheKey() + channelId — same namespacing reason as
-// the EPG cache: recorder ids and local ids are different, unrelated
-// numeric spaces, so the mode has to be part of the key or switching modes
-// could misread one provider's cached codec as another's. Probed once and
-// cached indefinitely — a provider changing a channel's encoding without
-// this cache ever being invalidated is a known, accepted simplification for
-// now (see PLAN.md Open Questions).
-//
-// Video and audio are judged independently — found via real testing against
-// the sonix account that this has to work this way: a channel can need
-// video passthrough + audio transcode at the same time (a real ABC NEWS
-// stream sent AAC in the "Main" profile — mp4a.40.1 — which decodes fine
-// into the MPEG-TS container with zero bitstream translation, so it looked
-// fine at the file level, but browsers' MSE only decode AAC-LC/HE-AAC, not
-// Main/SSR, so hls.js hit a hard bufferAddCodecError trying to play it).
-// TS-container compatibility (recorder's lesson) and browser-decoder
-// compatibility (this table) are two different questions.
-// Singleton row: player-wide UX settings (currently just one). Same
-// get-or-create-on-first-read pattern as providerSourceConfig/recorderConfig
-// above — see PLAN.md "Live TV preview" for previewTimeoutSecs' purpose: how
-// long an unpromoted live-channel preview plays before auto-closing itself,
-// entirely client-driven (Player.tsx), not enforced server-side — a user
-// setting rather than a hardcoded constant because there's no obviously
-// correct value (a fast channel-surfer wants it short, someone who lingers
-// deciding wants it longer).
-export const playerSettings = sqliteTable("player_settings", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  previewTimeoutSecs: integer("preview_timeout_secs").notNull().default(20),
-  updatedAt: integer("updated_at", { mode: "timestamp" })
-    .notNull()
-    .$defaultFn(() => new Date()),
-});
-
 // Resume/watch-progress tracking (PLAN.md Open Questions — "Dropped:
 // resume/watch-progress tracking" in both the VOD and Series sections) —
 // the one Laomedeia feature both of those ports explicitly deferred for not
@@ -160,6 +125,25 @@ export const watchProgress = sqliteTable(
   }),
 );
 
+// Caches each channel's codec passthrough decision (PLAN.md "Playback
+// architecture") so repeat tunes skip re-probing with ffprobe. Keyed by
+// providerSource.providerCacheKey() + channelId — same namespacing reason as
+// the EPG cache: recorder ids and local ids are different, unrelated
+// numeric spaces, so the mode has to be part of the key or switching modes
+// could misread one provider's cached codec as another's. Probed once and
+// cached indefinitely — a provider changing a channel's encoding without
+// this cache ever being invalidated is a known, accepted simplification for
+// now (see PLAN.md Open Questions).
+//
+// Video and audio are judged independently — found via real testing against
+// the sonix account that this has to work this way: a channel can need
+// video passthrough + audio transcode at the same time (a real ABC NEWS
+// stream sent AAC in the "Main" profile — mp4a.40.1 — which decodes fine
+// into the MPEG-TS container with zero bitstream translation, so it looked
+// fine at the file level, but browsers' MSE only decode AAC-LC/HE-AAC, not
+// Main/SSR, so hls.js hit a hard bufferAddCodecError trying to play it).
+// TS-container compatibility (recorder's lesson) and browser-decoder
+// compatibility (this table) are two different questions.
 export const channelCodecCache = sqliteTable(
   "channel_codec_cache",
   {

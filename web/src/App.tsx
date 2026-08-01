@@ -26,6 +26,13 @@ function App() {
   // routing if this grows further, same threshold iptv-scheduler crossed
   // before adopting it.
   const [tab, setTab] = useState<Tab>("providers");
+  // Lifted up from EpgGuide.tsx so its "Updated Xh ago · N channels ·
+  // N programs" status can render in this nav row instead of costing the
+  // Guide screen a whole extra toolbar row of its own (PLAN.md "Guide UI
+  // polish") — matters most on a landscape tablet, where vertical space is
+  // the scarce resource.
+  const [guideStatusText, setGuideStatusText] = useState("");
+  const [guideStatusError, setGuideStatusError] = useState(false);
 
   function refresh() {
     setConfig("loading");
@@ -42,12 +49,16 @@ function App() {
     refresh();
   }
 
+  function handleGuideStatusText(text: string, isError: boolean) {
+    setGuideStatusText(text);
+    setGuideStatusError(isError);
+  }
+
   const showChoice = config !== "loading" && config !== "error" && (config.mode === null || changingSource);
   const configured = config !== "loading" && config !== "error" && config.mode !== null;
 
   return (
     <main>
-      <h1>iptv-web-player</h1>
       {config === "loading" && <p>Loading…</p>}
       {config === "error" && <p className="error">Could not reach iptv-web-player's own API.</p>}
       {configured && !showChoice && (
@@ -70,6 +81,7 @@ function App() {
           <button type="button" className={tab === "diagnostics" ? "active" : ""} onClick={() => setTab("diagnostics")}>
             Diagnostics
           </button>
+          {tab === "guide" && guideStatusText && <span className={`nav-status${guideStatusError ? " nav-status-error" : ""}`}>{guideStatusText}</span>}
         </nav>
       )}
       {showChoice && <ProviderSourceChoice onChosen={handleChosen} />}
@@ -81,7 +93,7 @@ function App() {
       )}
       {!showChoice && configured && tab === "guide" && (
         <div className="guide-container">
-          <EpgGuide />
+          <EpgGuide onStatusTextChange={handleGuideStatusText} />
         </div>
       )}
       {!showChoice && configured && tab === "vod" && <VodBrowser />}

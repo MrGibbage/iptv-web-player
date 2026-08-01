@@ -1,8 +1,12 @@
 /* Ported from Laomedeia (src/components/epg.css). Trimmed: no
    .channel-cat-btn/.channel-cat-menu (CategoryFilter wasn't ported — this
    page uses a plain <select>). PLAN.md "Guide-centric Live TV" added the
-   .epg-player-* rules below (the permanent mini-player dock) and
-   .epg-timeout-* (moved here from the now-deleted live.css/LiveTV.tsx). */
+   .epg-player-* rules below (the permanent mini-player dock). PLAN.md
+   "Guide UI polish" (2026-08-01) removed .epg-status/.epg-timeout-* (status
+   text moved to App.tsx's nav row, the preview-timeout setting was dropped
+   entirely) and added .epg-stats-trigger/.stats-popover (the latter lives
+   in diagnostics.css, reused by both the full Diagnostics page and this
+   page's popover). */
 
 .epg-root {
   display: flex;
@@ -27,12 +31,12 @@
 }
 
 .epg-toolbar select {
-  max-width: 220px;
+  max-width: 180px;
   font-size: 0.85rem;
 }
 
 .epg-toolbar .epg-day-label {
-  min-width: 130px;
+  min-width: 108px;
   text-align: center;
   font-weight: 600;
   font-size: 0.9rem;
@@ -40,41 +44,14 @@
 
 .epg-search-input {
   flex: 1;
-  min-width: 160px;
+  min-width: 120px;
   max-width: 340px;
 }
 
-.epg-status {
-  margin-left: auto;
-  font-size: 0.74rem;
-  color: var(--text-dim);
-  white-space: nowrap;
-}
-
-.epg-status.epg-status-error {
-  color: var(--now-line);
-}
-
-.epg-timeout-label {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 0.78rem;
-  color: var(--text-dim);
-  white-space: nowrap;
-}
-
-.epg-timeout-input {
-  width: 56px;
-}
-
 /* PLAN.md "Guide-centric Live TV" — the permanent mini-player dock above
-   the grid, replacing the old bottom-only detail panel. flex-wrap does the
-   heavy lifting here: a compact ~320px dock leaves room for details beside
-   it, but once promoted (the same Player instance rendering full-size, see
-   Player.tsx) it no longer fits next to the details panel at any reasonable
-   width, so the row wraps and details fall below it instead — no JS layout
-   branching needed for that, just CSS. */
+   the grid, replacing the old bottom-only detail panel. flex-wrap lets the
+   dock and the details panel reflow (side by side when there's room, details
+   falling below on a narrow viewport) with no JS layout branching. */
 .epg-player-row {
   display: flex;
   flex-wrap: wrap;
@@ -86,6 +63,28 @@
 
 .epg-player-dock {
   flex-shrink: 0;
+  position: relative;
+}
+
+/* Small "ⓘ" trigger for StatsPopover.tsx, overlaid on the dock's top-right
+   corner rather than taking its own layout space — PLAN.md "Guide UI
+   polish": diagnostics about what's playing needs to stay reachable without
+   navigating away (which would unmount the still-playing <Player>). */
+.epg-stats-trigger {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  z-index: 2;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  line-height: 1;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  border: none;
+  font-size: 0.8rem;
+  cursor: pointer;
 }
 
 .epg-player-placeholder {

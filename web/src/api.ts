@@ -75,11 +75,6 @@ export type EffectiveProvider = {
   enabled: boolean;
 };
 
-export type PlayerSettings = {
-  previewTimeoutSecs: number;
-  updatedAt: string;
-};
-
 export type LiveCategory = {
   categoryId: string;
   categoryName: string;

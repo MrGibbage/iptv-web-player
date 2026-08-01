@@ -116,22 +116,12 @@ body {
   margin: 0;
 }
 
-h1,
 h2 {
   font-family: var(--heading);
   font-weight: 500;
   color: var(--text-h);
 }
 
-h1 {
-  font-size: 56px;
-  letter-spacing: -1.68px;
-  margin: 32px 0;
-  @media (max-width: 1024px) {
-    font-size: 36px;
-    margin: 20px 0;
-  }
-}
 h2 {
   font-size: 24px;
   line-height: 118%;
@@ -240,10 +230,27 @@ main {
 
 .nav {
   display: flex;
+  align-items: center;
+  flex-wrap: wrap;
   gap: 20px;
   margin: 16px 0 24px;
   border-bottom: 1px solid var(--border);
   padding-bottom: 12px;
+}
+
+/* The Guide's own "Updated Xh ago · N channels · N programs" readout,
+   lifted up here from EpgGuide.tsx (PLAN.md "Guide UI polish") so it costs
+   this one shared row instead of a whole extra toolbar row on that page —
+   only rendered while that tab is active, see App.tsx. */
+.nav-status {
+  margin-left: auto;
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.nav-status.nav-status-error {
+  color: var(--now-line);
 }
 
 .nav button {
@@ -279,11 +286,15 @@ main {
 
 /* The Guide screen's permanent mini-player dock sizes this inline (PLAN.md
    "Guide-centric Live TV" — see epg.css's .epg-player-row/.epg-player-dock).
-   Used to float via position:fixed for the old LiveTV.tsx's bottom-right
-   preview dock; that screen is gone now, so this is just a plain sized box
-   inside whatever flex row its parent gives it. */
+   Width is capped by viewport height, not just a flat pixel value (PLAN.md
+   "Guide UI polish") — a fixed 320px-wide (so ~180px-tall, 16:9) preview is
+   fine on a normal desktop window, but on a short landscape tablet viewport
+   it eats a disproportionate share of the little vertical room there is for
+   the actual grid below it. 34vh keeps the resulting video height around
+   ~19vh regardless of window shape; min() means this never grows past the
+   original 320px on a normal-height window either. */
 .player-compact {
-  width: 320px;
+  width: min(320px, 34vh);
   flex-shrink: 0;
 }
 
