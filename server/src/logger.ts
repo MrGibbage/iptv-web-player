@@ -32,3 +32,9 @@ export function log(scope: string, message: string): void {
   appendFileSync(LOG_FILE, line + "\n");
   console.log(line);
 }
+
+// Oldest-first (rotated generation, then current) — a downloaded log reads
+// chronologically top to bottom, same order someone would scroll through it.
+export function getLogFilePaths(): string[] {
+  return [ROTATED_FILE, LOG_FILE];
+}

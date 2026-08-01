@@ -1,0 +1,49 @@
+.diag-summary {
+  display: flex;
+  gap: 24px;
+  margin: 16px 0 24px;
+  flex-wrap: wrap;
+}
+
+.diag-summary > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.diag-summary-label {
+  font-size: 0.74rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.diag-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.84rem;
+  margin-bottom: 24px;
+}
+
+.diag-table th,
+.diag-table td {
+  text-align: left;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.diag-table td:nth-child(2) {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.diag-row-error {
+  color: var(--now-line);
+}
+
+.diag-orphan {
+  font-family: var(--mono);
+  font-size: 0.82rem;
+}

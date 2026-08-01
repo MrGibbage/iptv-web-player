@@ -180,6 +180,28 @@ export type Progress = {
   durationSecs: number | null;
 };
 
+export type SessionStats = {
+  id: string;
+  providerId: number;
+  mediaId: string;
+  kind: "live" | "vod";
+  status: "starting" | "running" | "error";
+  error: string | null;
+  pid: number | null;
+  ageSecs: number;
+  idleSecs: number;
+  videoPassthrough: boolean;
+  audioPassthrough: boolean;
+};
+
+export type Stats = {
+  uptimeSecs: number;
+  rssBytes: number;
+  heapUsedBytes: number;
+  sessions: SessionStats[];
+  orphanedSessionDirs: string[];
+};
+
 export type SeriesInfo = {
   name: string;
   cover: string | null;

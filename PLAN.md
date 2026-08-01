@@ -784,6 +784,41 @@ watch` does in dev), but a real, unbounded resource leak if it ever happens outs
 worth a proper fix (e.g. an on-startup reconciliation pass over `data/hls-sessions/` against
 `ps`) at some point, not done here.
 
+## Stats for nerds + log download (2026-08-01)
+
+Two small diagnostics features, both requested together and both aimed at the same
+underlying need: being able to see what the server is actually doing without SSHing in,
+and being able to hand off evidence when something goes wrong (the concrete case raised:
+daughter hits a playback problem on her device and needs an easy way to send logs back).
+
+New "Diagnostics" tab (`web/src/pages/Diagnostics.tsx`), polling a new `GET /stats`
+(`server/src/routes/stats.ts`) every 5s:
+- Process uptime + RSS/heap memory.
+- Every actively-tracked playback session: provider/media id, kind, status, ffmpeg pid, age,
+  idle time, and the video/audio passthrough-vs-transcode decision — `hlsSession.ts`'s
+  `Session` type gained `startedAtMs`/`videoPassthrough`/`audioPassthrough` fields to make
+  this possible (the codec decision was already made per-session, just not retained anywhere
+  after the ffmpeg args were built).
+- **Orphaned session directories** — directly answers open question #6 below, at least on
+  the disk side: `listOrphanedSessionDirs()` reads `HLS_DATA_DIR` and reports any directory
+  name with no matching entry in the in-memory `sessions` map. Can't see an orphaned ffmpeg
+  *process* itself this way (once the map entry is gone, this process has no pid to check
+  against), but a leftover directory is a reliable proxy that something wasn't cleaned up —
+  confirmed clean (`orphanedSessionDirs: []`) in normal operation via curl.
+
+Log download: `GET /logs/download` concatenates `logger.ts`'s existing rotated + current log
+file (oldest first) and returns it as a `text/plain` attachment. `logger.ts` already wrote a
+real on-disk log for its own reasons (found via a real incident — see its own top comment) —
+this just exposes what was already there; no new logging infrastructure needed. Client side
+is a plain `<a href="/api/logs/download" download>` rather than a fetch+blob dance, since the
+browser's native download handling already does exactly what's wanted here.
+
+Verified against the real sonix account: started a real live session via curl, confirmed it
+appeared in `/stats` with the correct pid/age/codec info and in the Diagnostics table
+(screenshot), stopped it and confirmed the table/orphan list both went back to empty,
+and confirmed the download link actually triggers a browser download (Playwright
+`waitForEvent("download")`) with the expected filename and non-trivial size.
+
 ## Open questions
 
 1. Provider feed size/refresh cost for EPG — worth measuring before accepting a third
@@ -805,8 +840,12 @@ worth a proper fix (e.g. an on-startup reconciliation pass over `data/hls-sessio
 6. Orphaned playback sessions after the in-memory session map is lost (e.g. a dev-server
    restart) — `stopSession()`/the idle sweep only know about sessions still in that map, so
    a leftover ffmpeg process + `data/hls-sessions/` directory has nothing left to reap it.
-   See "Guide-centric Live TV" for the real instances found. Worth an on-startup
-   reconciliation pass eventually; not done yet.
+   See "Guide-centric Live TV" for the real instances found. The new Diagnostics tab (see
+   "Stats for nerds + log download") now at least surfaces the disk-side half of this
+   (orphaned directories), so it's visible instead of invisible — but nothing reaps them
+   automatically yet, and an orphaned ffmpeg *process* with its directory already cleaned up
+   some other way would still be fully invisible. An on-startup reconciliation pass is still
+   the real fix; not done yet.
 7. Not deployed anywhere yet — still just `tsx watch`/`vite --host` dev processes run
    manually on docker-server (reachable at its LAN IP while those happen to be running, not
    a real URL). Deploying it as a proper docker-compose service behind Caddy at a real
@@ -819,3 +858,11 @@ worth a proper fix (e.g. an on-startup reconciliation pass over `data/hls-sessio
    auto-prompt like Android gets — but otherwise works fine for this app's needs; no
    offline mode or push notifications planned, so iOS's gaps there don't matter). Not
    started.
+8. Recording support — save a live channel (or VOD/series title?) to disk and play it back
+   later, laomedeia has a similar feature. Real design questions not yet worked through:
+   where recordings live on disk and how their retention/cleanup works, whether a "record"
+   ffmpeg process can coexist with a "watch" process for the same channel without doubling
+   provider connection load (see open question #4), and what the browse/play UI looks like
+   (a new tab? folded into an existing one?). Queued, not started — deliberately held until
+   docker-server is back at ganymede in the morning rather than starting a bigger backend
+   design pass from a tablet.

@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { mkdir, rm, readFile } from "node:fs/promises";
+import { mkdir, rm, readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
 import { getCodecDecision } from "./codecProbe.js";
@@ -52,10 +52,13 @@ interface Session {
   kind: SessionKind;
   dir: string;
   process: ChildProcess;
+  startedAtMs: number;
   lastAccessMs: number;
   status: SessionStatus;
   error: string | null;
   stderrTail: string;
+  videoPassthrough: boolean;
+  audioPassthrough: boolean;
 }
 
 const sessions = new Map<string, Session>();
@@ -148,10 +151,13 @@ export async function startSession(opts: StartSessionOptions): Promise<{ session
     kind,
     dir,
     process: proc,
+    startedAtMs: Date.now(),
     lastAccessMs: Date.now(),
     status: "starting",
     error: null,
     stderrTail: "",
+    videoPassthrough,
+    audioPassthrough,
   };
   sessions.set(sessionId, session);
 
@@ -254,6 +260,57 @@ export function stopSession(sessionId: string, reason = "stopped"): void {
 
 export function stopAllSessions(): void {
   for (const id of [...sessions.keys()]) stopSession(id, "server shutting down");
+}
+
+export interface SessionStats {
+  id: string;
+  providerId: number;
+  mediaId: string;
+  kind: SessionKind;
+  status: SessionStatus;
+  error: string | null;
+  pid: number | undefined;
+  ageSecs: number;
+  idleSecs: number;
+  videoPassthrough: boolean;
+  audioPassthrough: boolean;
+}
+
+export function listSessionStats(): SessionStats[] {
+  const now = Date.now();
+  return [...sessions.values()].map((s) => ({
+    id: s.id,
+    providerId: s.providerId,
+    mediaId: s.mediaId,
+    kind: s.kind,
+    status: s.status,
+    error: s.error,
+    pid: s.process.pid,
+    ageSecs: Math.round((now - s.startedAtMs) / 1000),
+    idleSecs: Math.round((now - s.lastAccessMs) / 1000),
+    videoPassthrough: s.videoPassthrough,
+    audioPassthrough: s.audioPassthrough,
+  }));
+}
+
+// Directories left behind under HLS_DATA_DIR that no tracked session claims
+// — PLAN.md open question "orphaned playback sessions when the in-memory
+// session map is lost" (e.g. a dev-server restart while a session was
+// running: the ffmpeg child keeps running as a real OS process, and its
+// segment directory is never cleaned up by stopSession()'s own exit-handler
+// since nothing calls it anymore). This is the disk-side half of that gap —
+// it can't see the orphaned ffmpeg process itself (this process has no
+// record of its pid once the map entry is gone), but a leftover directory
+// still on disk is a reliable proxy for "something wasn't cleaned up",
+// visible without needing to shell out to `ps`.
+export async function listOrphanedSessionDirs(): Promise<string[]> {
+  let entries: string[];
+  try {
+    entries = await readdir(HLS_DATA_DIR);
+  } catch {
+    return [];
+  }
+  return entries.filter((name) => !sessions.has(name));
 }
 
 let sweepInterval: ReturnType<typeof setInterval> | null = null;
