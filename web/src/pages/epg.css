@@ -279,9 +279,18 @@
   opacity: 0.5;
 }
 
+/* Explicit line-height on both (PLAN.md "Guide UI polish, round 5" — a
+   real cross-platform bug, not just a desktop-only tweak): neither set one
+   before, so both inherited the root's 145% — sized for body paragraph
+   text, not a two-line grid cell. At ROW_H's available content height
+   (~38px) that added up to almost exactly the space available, a
+   razor-thin margin that happened to fit on the tablet's font metrics but
+   clipped the time line on desktop's. 1.2 leaves real headroom on both
+   instead of relying on one platform's rounding to come out ahead. */
 .epg-block .epg-block-title {
   font-size: 0.78rem;
   font-weight: 600;
+  line-height: 1.2;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -289,6 +298,7 @@
 
 .epg-block .epg-block-time {
   font-size: 0.68rem;
+  line-height: 1.2;
   color: var(--text-dim);
   white-space: nowrap;
 }

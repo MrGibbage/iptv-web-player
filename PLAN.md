@@ -1196,6 +1196,41 @@ height, `.epg-scroll` = viewport height minus the player row, not the content's 
 when its own content exceeds the viewport, unaffected by the `#root` height change. Both
 packages typecheck and lint clean, no console errors.
 
+## Guide UI polish, round 5 (2026-08-01)
+
+Small but real cross-platform bug, found from a real desktop (ganymede) screenshot: EPG grid
+cells were clipping the second line (start–end time) on desktop while rendering fine on the
+tablet. Root cause: neither `.epg-block-title` nor `.epg-block-time` set an explicit
+`line-height`, so both inherited the root's `145%` (tuned for body paragraph text, not a
+dense two-line grid cell) — at `ROW_H`'s available content height (~38px after padding/insets),
+that added up to almost exactly the space available, a razor-thin margin that happened to
+render under budget on the tablet's font metrics but tipped over on desktop's. Fixed by
+giving both an explicit `line-height: 1.2`, leaving real headroom on both instead of relying
+on one platform's rounding to come out ahead. Verified at both the tablet's landscape
+dimensions and the exact desktop resolution from the reported screenshot (1202×730, which
+resolves the root font-size media query to 18px, not 16px) — both now show the full two-line
+cell cleanly.
+
+**Also investigated: phone-width layout is genuinely broken, not just cramped.** Tested via
+Playwright at a real phone viewport (412×915, matching a typical Android phone) rather than
+guessing. With nothing selected, the preview placeholder + details text + search all stack
+above the grid (flex-wrap kicking in at narrow widths), pushing the grid mostly out of view.
+With a channel selected, it's worse — preview dock + description + Record button + search
+all stack above the grid, consuming the entire viewport height before the grid even starts.
+This confirms the user's own hypothesis: the current side-by-side model needs a genuinely
+different layout below some phone-width breakpoint, not a tighter version of the same one.
+Agreed direction for the next session (not built yet):
+- Below the phone breakpoint, no permanent preview dock at all — no placeholder when nothing
+  is selected, just the grid immediately.
+- Tapping a channel goes straight to fullscreen via the existing Fullscreen API mechanism
+  already built for "▶ Watch" (`Player.tsx`'s `handleFullscreen`) — no inline compact dock
+  ever appears on phone. Exiting fullscreen returns to the grid with nothing playing inline.
+- Program details move into something transient (a bottom sheet, or reusing the `StatsPopover`
+  -style on-demand popover pattern) instead of a permanent side column, since there's no spare
+  width for a details rail next to the grid at all.
+- Open question raised but not yet answered: whether the daughter's iOS device is
+  phone-sized or tablet-sized — affects how aggressively this breakpoint needs to kick in.
+
 ## Open questions
 
 1. Provider feed size/refresh cost for EPG — worth measuring before accepting a third
