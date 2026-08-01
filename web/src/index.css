@@ -348,9 +348,13 @@ main {
   width: 24px;
   height: 24px;
   padding: 0;
-  text-align: center;
-  line-height: 1;
   font-size: 0.95rem;
+  /* text-align/line-height alone don't reliably center a glyph vertically
+     (font ascent/descent metrics vary) — flex centering does both axes
+     properly regardless of the character's own metrics. */
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .hamburger-panel button {
