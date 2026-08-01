@@ -83,17 +83,7 @@ interface SelectedProgram {
 // forward runway is considered "enough" before auto-triggering a refresh.
 const STALE_MARGIN_MS = 60 * 60 * 1000;
 
-type Props = {
-  // Lifts the "Updated Xh ago · N channels · N programs" status line up into
-  // App.tsx's own nav row (PLAN.md "Guide UI polish") — freeing a full row
-  // of vertical space here matters on a landscape tablet, where every row
-  // is scarce. Deliberately a narrow one-way readout rather than lifting
-  // this page's actual data-fetching into shared state (still "acceptable
-  // duplication for now" everywhere else, see the file header).
-  onStatusTextChange?: (text: string, isError: boolean) => void;
-};
-
-export function EpgGuide({ onStatusTextChange }: Props) {
+export function EpgGuide() {
   const [providers, setProviders] = useState<EffectiveProvider[] | "loading" | "error">("loading");
   const [providerId, setProviderId] = useState<number | null>(null);
   const [categories, setCategories] = useState<LiveCategory[] | "loading" | "error">("loading");
@@ -116,6 +106,7 @@ export function EpgGuide({ onStatusTextChange }: Props) {
   const [recorderMode, setRecorderMode] = useState(false);
   const [recordTarget, setRecordTarget] = useState<{ channel: LiveChannel; startMs: number; stopMs: number } | null>(null);
   const [statsOpen, setStatsOpen] = useState(false);
+  const [epgInfoOpen, setEpgInfoOpen] = useState(false);
   const autoRefreshTriggeredRef = useRef(false);
 
   const dayEndMs = nextMidnight(dayStartMs);
@@ -294,6 +285,11 @@ export function EpgGuide({ onStatusTextChange }: Props) {
     return () => clearTimeout(timer);
   }, [providerId, searchQuery, searchActive, visibleEpgChannelIds]);
 
+  // 15 minutes of lead-in before the target time — reasonable for jumping to
+  // a specific search result or program (a little "how did we get here"
+  // context), but deliberately NOT used for "now" (see scrollToCurrentHour
+  // below) — PLAN.md "Guide UI polish, round 2": there's no real use case for
+  // seeing minutes that already aired when you're just opening the guide.
   const scrollToTime = (timeMs: number) => {
     const el = scrollRef.current;
     if (!el) return;
@@ -301,14 +297,25 @@ export function EpgGuide({ onStatusTextChange }: Props) {
     el.scrollLeft = Math.max(0, (minutes - 15) * PX_PER_MIN);
   };
 
-  // Open the grid at the current time rather than 12:00 AM. Runs once
+  // The current hour's own start (not "now minus 15 minutes") — used for the
+  // initial load and "Now" button, where landing exactly on the current hour
+  // boundary is more useful than a few minutes of already-aired lead-in.
+  const scrollToCurrentHour = (dayStart: number) => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const now = Date.now();
+    const hourStart = Math.floor(now / 3_600_000) * 3_600_000;
+    el.scrollLeft = Math.max(0, ((hourStart - dayStart) / 60_000) * PX_PER_MIN);
+  };
+
+  // Open the grid at the current hour rather than 12:00 AM. Runs once
   // status first loads (the scroll container doesn't render until guide
   // data exists).
   const didInitialScrollRef = useRef(false);
   useEffect(() => {
     if (didInitialScrollRef.current || !scrollRef.current) return;
     didInitialScrollRef.current = true;
-    scrollToTime(Date.now());
+    scrollToCurrentHour(dayStartMs);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status]);
 
@@ -325,13 +332,9 @@ export function EpgGuide({ onStatusTextChange }: Props) {
   }, [jumpTarget, dayStartMs, channels]);
 
   const jumpToNow = () => {
-    const now = Date.now();
-    const today = localMidnight(now);
+    const today = localMidnight(Date.now());
     if (today !== dayStartMs) changeDay(today);
-    requestAnimationFrame(() => {
-      const el = scrollRef.current;
-      if (el) el.scrollLeft = Math.max(0, ((now - today) / 60_000 - 15) * PX_PER_MIN);
-    });
+    requestAnimationFrame(() => scrollToCurrentHour(today));
   };
 
   // Starts/switches the permanent mini-player dock (PLAN.md "Guide-centric
@@ -369,7 +372,11 @@ export function EpgGuide({ onStatusTextChange }: Props) {
     if (channel) startPreview(channel.channelId, channel.name);
   };
 
-  const minDay = bounds?.minStartMs != null ? localMidnight(bounds.minStartMs) : null;
+  // Never earlier than today, regardless of how far back the guide's own
+  // cached data goes — there's no real use case for scrolling into
+  // already-aired content on a live-TV screen (PLAN.md "Guide UI polish,
+  // round 2").
+  const minDay = Math.max(bounds?.minStartMs != null ? localMidnight(bounds.minStartMs) : 0, localMidnight(Date.now()));
   const maxDay = bounds?.maxStopMs != null ? localMidnight(bounds.maxStopMs - 1) : null;
   const refreshing = status?.state === "refreshing";
   const hasData = (status?.programCount ?? 0) > 0;
@@ -414,15 +421,6 @@ export function EpgGuide({ onStatusTextChange }: Props) {
     return `Updated ${fmtAgo(status.lastRefreshMs)} · ${status.channelCount.toLocaleString()} channels · ${status.programCount.toLocaleString()} programs`;
   })();
 
-  // Lifted to App.tsx's nav row (see the Props comment above) — cleared on
-  // unmount so switching away from this tab doesn't leave a stale Guide
-  // status sitting in the nav forever.
-  useEffect(() => {
-    onStatusTextChange?.(statusText, status?.state === "error");
-    return () => onStatusTextChange?.("", false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [statusText, status?.state]);
-
   if (providers === "loading") return <p>Loading providers…</p>;
   if (providers === "error") return <p className="error">Could not load providers.</p>;
   if (providers.length === 0) return <p className="muted">No providers configured yet.</p>;
@@ -443,7 +441,7 @@ export function EpgGuide({ onStatusTextChange }: Props) {
   return (
     <div className="epg-root">
       <div className="epg-toolbar">
-        <button onClick={() => changeDay(localMidnight(dayStartMs - DAY_MS / 2))} disabled={minDay != null && dayStartMs <= minDay}>
+        <button onClick={() => changeDay(localMidnight(dayStartMs - DAY_MS / 2))} disabled={dayStartMs <= minDay}>
           ◀
         </button>
         <span className="epg-day-label">{fmtDay(dayStartMs)}</span>
@@ -585,6 +583,23 @@ export function EpgGuide({ onStatusTextChange }: Props) {
               {ticks}
               <div className="epg-ruler-corner" style={{ width: CH_COL_W }}>
                 Channel
+                <button type="button" className="epg-info-trigger" title="Guide info" onClick={() => setEpgInfoOpen((v) => !v)}>
+                  ⓘ
+                </button>
+                {epgInfoOpen && (
+                  <div className="stats-popover epg-info-popover">
+                    <div className="page-header">
+                      <strong>Guide info</strong>
+                      <button type="button" className="button-link" onClick={() => setEpgInfoOpen(false)}>
+                        Close
+                      </button>
+                    </div>
+                    <p className={status?.state === "error" ? "error" : "muted"}>{statusText}</p>
+                    <button type="button" onClick={handleRefresh} disabled={refreshing}>
+                      {refreshing ? "Refreshing…" : "Refresh now"}
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
 

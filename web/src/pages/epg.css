@@ -103,9 +103,22 @@
   box-sizing: border-box;
 }
 
+/* Capped + internally scrollable (PLAN.md "Guide UI polish, round 2") — a
+   real program description has no natural length limit, and without a cap
+   here it was stretching the whole .epg-player-row taller than the dock
+   next to it (a flex row's height follows its tallest child), eating
+   exactly the grid space this session's earlier landscape-tablet fix was
+   trying to reclaim. max-height roughly matches the dock's own height
+   (see index.css's .player-compact) rather than a fixed px value, for the
+   same viewport-proportional reasoning. epg-detail-desc's line-clamp keeps
+   the common case (a short-to-medium description) from ever needing to
+   scroll at all.
+   */
 .epg-player-details {
   flex: 1;
   min-width: 260px;
+  max-height: 30vh;
+  overflow-y: auto;
 }
 
 .epg-scroll {
@@ -139,6 +152,36 @@
   letter-spacing: 0.06em;
   color: var(--text-faint);
   box-sizing: border-box;
+}
+
+/* PLAN.md "Guide UI polish, round 2" — the "Updated Xh ago · N channels ·
+   N programs" line used to sit permanently in App.tsx's nav row; moved here
+   as an on-demand popover instead, since permanently-visible text turned out
+   to cost more than it was worth (the whole reason it got lifted up there in
+   the first place). Reuses .stats-popover's card styling (diagnostics.css)
+   but overrides its positioning — that one anchors to a ~320px-wide dock;
+   this anchors to a 220px sticky column header, so it needs its own
+   left/top instead. */
+.epg-info-trigger {
+  margin-left: 6px;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  line-height: 1;
+  border-radius: 50%;
+  background: none;
+  border: 1px solid var(--text-faint);
+  color: var(--text-faint);
+  font-size: 0.65rem;
+  cursor: pointer;
+}
+
+.epg-info-popover {
+  top: calc(100% + 4px);
+  left: 0;
+  text-transform: none;
+  letter-spacing: normal;
+  font-weight: normal;
 }
 
 .epg-tick {
@@ -269,6 +312,10 @@
   font-size: 0.84rem;
   color: var(--text);
   white-space: pre-wrap;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .epg-detail-empty {

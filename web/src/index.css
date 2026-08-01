@@ -238,20 +238,6 @@ main {
   padding-bottom: 12px;
 }
 
-/* The Guide's own "Updated Xh ago · N channels · N programs" readout,
-   lifted up here from EpgGuide.tsx (PLAN.md "Guide UI polish") so it costs
-   this one shared row instead of a whole extra toolbar row on that page —
-   only rendered while that tab is active, see App.tsx. */
-.nav-status {
-  margin-left: auto;
-  font-size: 0.78rem;
-  color: var(--text-dim);
-  white-space: nowrap;
-}
-
-.nav-status.nav-status-error {
-  color: var(--now-line);
-}
 
 .nav button {
   font: inherit;

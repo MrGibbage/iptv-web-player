@@ -982,6 +982,50 @@ console errors anywhere in the above. Also found (not introduced by this change,
 cause as the earlier Diagnostics work) one more orphaned `data/hls-sessions/` directory from
 a `tsx watch` restart mid-testing — cleaned up manually, same unchanged Open Question #6.
 
+## Guide UI polish, round 2 (2026-08-01)
+
+A real regression from the first "Guide UI polish" pass, found via another tablet
+screenshot: the earlier verification happened to test with no program selected or a short
+description, so it missed that `.epg-player-details` had no height cap — a real program
+description (often 2-3 sentences) plus the "⏺ Record" button made the details panel taller
+than the video dock next to it, and since they're flex siblings, the whole `.epg-player-row`
+stretched to match, costing back most of the grid space the previous round had just
+reclaimed. Fixed: `.epg-player-details` gets `max-height: 30vh; overflow-y: auto`, and
+`.epg-detail-desc` gets a 3-line `-webkit-line-clamp` so the common case never needs to
+scroll at all. Verified: a real 2-sentence description no longer pushes the grid down to
+zero visible rows.
+
+Three more fixes from the same round of feedback:
+
+- **EPG horizontal scroll now opens at the current hour, not "now minus 15 minutes."**
+  `scrollToCurrentHour()` (used for initial load and the "Now" button) lands on the hour
+  boundary exactly; `scrollToTime()` (search results, jump-to-program) keeps its 15-minute
+  lead-in, since landing exactly on a searched program's start edge with zero context is a
+  different, worse UX than for "now." Day navigation is also clamped to never go earlier
+  than today, regardless of how far back the guide's own cached data reaches — there's no
+  real use case for scrolling into already-aired content on a live-TV screen. (Manually
+  scrolling backward *within* today, e.g. to see what just aired on the current channel, is
+  still possible — only the day-boundary ◀ button and the default/auto scroll position
+  changed, not free scroll gesture within the visible day.)
+- **The "Updated Xh ago" status line moved again** — round 1 lifted it into the shared nav
+  row; this round removed it from being permanently visible at all, replacing it with a
+  small "ⓘ" button next to the "CHANNEL" grid-column header that opens an on-demand popover
+  (reusing `.stats-popover`'s card styling, positioned differently) with the same status
+  text plus a "Refresh now" button. Round 1's nav-row lifting mechanism (`onStatusTextChange`
+  prop, `.nav-status` CSS) is fully removed, not left dead — this round's approach replaced
+  it rather than adding alongside it.
+- Toolbar width trims from round 1 carried forward unchanged.
+
+**Still open, deliberately not built yet — see the conversation, not just PLAN.md, for full
+context:** collapsing the top app nav (and possibly the EPG's own toolbar) behind a
+hamburger-style menu, and persisting UI preferences (default start tab, last-selected
+category per screen) across reloads. The latter raises a real multi-user question — Skip and
+his daughter both use the same deployed instance from different devices — that's still being
+discussed: `localStorage` cleanly solves per-browser UI preferences with zero auth needed,
+but true per-user separation of *recordings* (not just UI prefs) would be a materially
+bigger feature (real identity, likely an iptv-recorder schema change to own/tag recordings
+per person) that's being deliberately scoped as a separate decision, not bundled in here.
+
 ## Open questions
 
 1. Provider feed size/refresh cost for EPG — worth measuring before accepting a third
