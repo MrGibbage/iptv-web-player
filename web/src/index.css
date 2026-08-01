@@ -322,6 +322,37 @@ main {
   box-sizing: border-box;
 }
 
+/* PLAN.md "Triton rename" — a quiet identity/close header, not a second
+   round of branding: the trigger button itself lost its "Triton" text
+   when it became just the trident, so this is the one remaining place the
+   name appears at all. The X is the explicit close affordance now that
+   every selection inside the panel also closes it (see the handlers) —
+   still useful for someone who opened the menu but changed their mind
+   without picking anything. */
+.hamburger-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 2px 4px 8px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.hamburger-panel-title {
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--text-h);
+}
+
+.hamburger-panel-close {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  text-align: center;
+  line-height: 1;
+  font-size: 0.95rem;
+}
+
 .hamburger-panel button {
   font: inherit;
   text-align: left;

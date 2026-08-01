@@ -242,6 +242,7 @@ export function EpgGuide({ tab, onSelectTab, startTabPref, onStartTabChange }: P
     const id = value === "" ? null : Number(value);
     setProfileId(id);
     setCurrentProfileId(id);
+    setMenuOpen(false);
   }
 
   // Categories on provider change. Restores the last category chosen on
@@ -273,11 +274,13 @@ export function EpgGuide({ tab, onSelectTab, startTabPref, onStartTabChange }: P
   function handleCategoryChange(value: string) {
     setCategoryId(value);
     setLastCategory("guide", value);
+    setMenuOpen(false);
   }
 
   function handleStartTabSelect(value: StartTab) {
     onStartTabChange(value);
     setStartTab(value);
+    setMenuOpen(false);
   }
 
   // Channels on provider/category change. Same stale-response guard as
@@ -551,6 +554,12 @@ export function EpgGuide({ tab, onSelectTab, startTabPref, onStartTabChange }: P
           </button>
           {menuOpen && (
             <div className="hamburger-panel">
+              <div className="hamburger-panel-header">
+                <span className="hamburger-panel-title">🔱 Triton</span>
+                <button type="button" className="hamburger-panel-close" aria-label="Close menu" onClick={() => setMenuOpen(false)}>
+                  ✕
+                </button>
+              </div>
               {TAB_ORDER.map((t) => (
                 <button
                   key={t}
@@ -566,7 +575,13 @@ export function EpgGuide({ tab, onSelectTab, startTabPref, onStartTabChange }: P
               ))}
               <div className="hamburger-divider" />
               {providers.length > 1 && (
-                <select value={providerId ?? ""} onChange={(e) => setProviderId(Number(e.target.value))}>
+                <select
+                  value={providerId ?? ""}
+                  onChange={(e) => {
+                    setProviderId(Number(e.target.value));
+                    setMenuOpen(false);
+                  }}
+                >
                   {providers.map((p) => (
                     <option key={p.id} value={p.id}>
                       {p.name}
@@ -611,7 +626,14 @@ export function EpgGuide({ tab, onSelectTab, startTabPref, onStartTabChange }: P
                 </label>
               )}
               <div className="hamburger-divider" />
-              <button type="button" onClick={handleRefresh} disabled={refreshing}>
+              <button
+                type="button"
+                onClick={() => {
+                  handleRefresh();
+                  setMenuOpen(false);
+                }}
+                disabled={refreshing}
+              >
                 {refreshing ? "Refreshing…" : "Refresh guide"}
               </button>
             </div>

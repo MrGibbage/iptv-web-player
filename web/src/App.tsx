@@ -51,6 +51,7 @@ function App() {
     const id = value === "" ? null : Number(value);
     setProfileId(id);
     setCurrentProfileId(id);
+    setNavOpen(false);
   }
 
   // Click-outside-to-close — standard expectation for a menu, especially on
@@ -102,6 +103,7 @@ function App() {
   function handleStartTabChange(value: StartTab) {
     setStartTabPref(value);
     setStartTab(value);
+    setNavOpen(false);
   }
 
   const showChoice = config !== "loading" && config !== "error" && (config.mode === null || changingSource);
@@ -124,6 +126,12 @@ function App() {
           <span className="nav-current-tab">{TAB_LABELS[tab]}</span>
           {navOpen && (
             <div className="hamburger-panel">
+              <div className="hamburger-panel-header">
+                <span className="hamburger-panel-title">🔱 Triton</span>
+                <button type="button" className="hamburger-panel-close" aria-label="Close menu" onClick={() => setNavOpen(false)}>
+                  ✕
+                </button>
+              </div>
               {TAB_ORDER.map((t) => (
                 <button key={t} type="button" className={tab === t ? "active" : ""} onClick={() => selectTab(t)}>
                   {TAB_LABELS[t]}
