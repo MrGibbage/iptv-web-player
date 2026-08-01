@@ -1374,11 +1374,21 @@ code (`Clients.tsx`), but nothing on this side scans one yet.
    recorder connection's stored `http://localhost:3300` broke the instant this app moved into
    its own container — fixed via a targeted SQL update of just the plaintext `base_url`
    column, never touching the encrypted API key).
-   **New regression found, not yet fixed:** channel/VOD picon images are served by the
-   provider over plain HTTP — browsers now block them as mixed content since the app itself is
-   HTTPS. Cosmetic (grid/guide functionality is unaffected), but real and visible; likely fix
-   is a small image-proxy route re-serving picons over this app's own HTTPS origin, same shape
-   as the existing playback pipeline.
+   **Regression found and fixed same day:** channel/VOD picon images are served by the
+   provider over plain HTTP, which browsers block as mixed content once the app itself is
+   HTTPS. Fixed with a new `GET /api/image-proxy?url=` route (`server/src/routes/
+   imageProxy.ts`) that fetches the picon server-side and re-serves the bytes over this app's
+   own origin — same shape as the existing playback pipeline, which already never has the
+   browser talk to the provider directly. The frontend's `proxiedImageUrl()` helper
+   (`web/src/api.ts`) rewrites only `http://` URLs (an already-`https://` picon needs no
+   help), used at all four `<img>` call sites (Guide channel logos, VOD/Series posters).
+   Because this is the one route here that fetches an arbitrary caller-supplied URL rather
+   than something a pre-configured provider itself returned, it also blocks obvious private/
+   loopback hostnames (hostname-pattern match, not full DNS-rebind-proof — proportionate to
+   this app's actual threat model, not airtight) and requires the upstream response to
+   actually be image content. Verified via Playwright against the live HTTPS site: zero
+   console/page errors (previously one mixed-content warning per picon), logos visibly
+   rendering in a screenshot.
    PWA support (installable to a phone home screen) is technically unblocked now that HTTPS
    exists, but the actual manifest + icons + service worker haven't been built yet (Safari's
    install flow is manual — Share → "Add to Home Screen" — no auto-prompt like Android gets;

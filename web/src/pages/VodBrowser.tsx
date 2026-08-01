@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, type EffectiveProvider, type Progress, type VodCategory, type VodInfo, type VodStream } from "../api";
+import { api, proxiedImageUrl, type EffectiveProvider, type Progress, type VodCategory, type VodInfo, type VodStream } from "../api";
 import { getLastCategory, setLastCategory } from "../localSettings";
 import { Player } from "./Player";
 import "./vod.css";
@@ -259,7 +259,7 @@ export function VodBrowser() {
               {visibleStreams.map((item) => (
                 <div key={item.streamId} className="vod-poster-card" onClick={() => setSelectedItem(item)}>
                   {item.streamIcon ? (
-                    <img className="vod-poster-img" src={item.streamIcon} alt="" loading="lazy" />
+                    <img className="vod-poster-img" src={proxiedImageUrl(item.streamIcon)} alt="" loading="lazy" />
                   ) : (
                     <div className="vod-poster-img vod-poster-fallback">{item.name.charAt(0).toUpperCase()}</div>
                   )}
@@ -281,7 +281,7 @@ export function VodBrowser() {
               ✕
             </button>
             {selectedItem.streamIcon ? (
-              <img className="vod-detail-poster" src={selectedItem.streamIcon} alt="" />
+              <img className="vod-detail-poster" src={proxiedImageUrl(selectedItem.streamIcon)} alt="" />
             ) : (
               <div className="vod-detail-poster vod-poster-fallback">{selectedItem.name.charAt(0).toUpperCase()}</div>
             )}

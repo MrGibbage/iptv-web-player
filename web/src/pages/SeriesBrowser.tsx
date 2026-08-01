@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, type EffectiveProvider, type Progress, type SeriesCategory, type SeriesEpisode, type SeriesInfo, type SeriesListItem } from "../api";
+import { api, proxiedImageUrl, type EffectiveProvider, type Progress, type SeriesCategory, type SeriesEpisode, type SeriesInfo, type SeriesListItem } from "../api";
 import { getLastCategory, setLastCategory } from "../localSettings";
 import { Player } from "./Player";
 import "./vod.css";
@@ -288,7 +288,7 @@ export function SeriesBrowser() {
               {visibleSeries.map((item) => (
                 <div key={item.seriesId} className="vod-poster-card" onClick={() => setSelectedSeries(item)}>
                   {item.cover ? (
-                    <img className="vod-poster-img" src={item.cover} alt="" loading="lazy" />
+                    <img className="vod-poster-img" src={proxiedImageUrl(item.cover)} alt="" loading="lazy" />
                   ) : (
                     <div className="vod-poster-img vod-poster-fallback">{item.name.charAt(0).toUpperCase()}</div>
                   )}
@@ -310,7 +310,7 @@ export function SeriesBrowser() {
               ✕
             </button>
             {selectedSeries.cover ? (
-              <img className="vod-detail-poster" src={selectedSeries.cover} alt="" />
+              <img className="vod-detail-poster" src={proxiedImageUrl(selectedSeries.cover)} alt="" />
             ) : (
               <div className="vod-detail-poster vod-poster-fallback">{selectedSeries.name.charAt(0).toUpperCase()}</div>
             )}

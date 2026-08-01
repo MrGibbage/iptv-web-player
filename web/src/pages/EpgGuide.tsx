@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { api, type EffectiveProvider, type EpgBounds, type EpgProgram, type EpgSearchResult, type EpgStatus, type LiveCategory, type LiveChannel, type ProviderSourceConfig } from "../api";
+import { api, proxiedImageUrl, type EffectiveProvider, type EpgBounds, type EpgProgram, type EpgSearchResult, type EpgStatus, type LiveCategory, type LiveChannel, type ProviderSourceConfig } from "../api";
 import { getLastCategory, setLastCategory, setStartTab, type StartTab } from "../localSettings";
 import { TAB_LABELS, TAB_ORDER, type Tab } from "../navConfig";
 import { Player } from "./Player";
@@ -811,7 +811,7 @@ export function EpgGuide({ tab, onSelectTab, startTabPref, onStartTabChange }: P
                       }
                     }}
                   >
-                    {channel.streamIcon && <img src={channel.streamIcon} alt="" loading="lazy" />}
+                    {channel.streamIcon && <img src={proxiedImageUrl(channel.streamIcon)} alt="" loading="lazy" />}
                     <span>{channel.name}</span>
                   </div>
                   {progs?.map((p) => {

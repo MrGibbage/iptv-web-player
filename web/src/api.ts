@@ -28,6 +28,19 @@ export const api = {
   delete: (path: string): Promise<void> => request<void>(path, { method: "DELETE" }),
 };
 
+// PLAN.md "Docker deployment" — provider picons are plain http://, which
+// browsers now block as mixed content since this app itself is HTTPS.
+// Routes through the server's own /image-proxy (imageProxy.ts) instead,
+// which fetches the bytes server-side and re-serves them over this app's
+// own origin. Only rewrites http:// specifically — an already-https://
+// picon (or a relative/local one) needs no help and shouldn't pay the
+// extra hop.
+export function proxiedImageUrl(url: string | null | undefined): string | undefined {
+  if (!url) return undefined;
+  if (!url.startsWith("http://")) return url;
+  return `/api/image-proxy?url=${encodeURIComponent(url)}`;
+}
+
 export type ProviderSourceConfig = {
   mode: "recorder" | "local" | null;
   updatedAt: string;
