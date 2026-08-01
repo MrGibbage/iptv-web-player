@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, isProjectedOccurrence, type EffectiveProvider, type LiveChannel, type ProjectedOccurrence, type ProviderSourceConfig, type Recording, type RecurringRule } from "../api";
+import { getCurrentProfileId } from "../localSettings";
 import { Player } from "./Player";
 import "./record.css";
 
@@ -83,9 +84,16 @@ export function Recordings() {
     let cancelled = false;
     setLoading(true);
     setError(undefined);
+    // PLAN.md "Profiles" — "my recordings shouldn't show up as her
+    // recordings": filters to whichever profile is currently selected on
+    // this device (see localSettings.ts), the same opt-in behavior as
+    // scheduling (RecordDialog.tsx). No profile selected means no filter —
+    // everything shows, exactly like before this feature existed.
+    const profileId = getCurrentProfileId();
+    const profileFilter = profileId !== null ? `&profileId=${profileId}` : "";
     Promise.all([
-      api.get<Array<Recording | ProjectedOccurrence>>(`/recordings?providerId=${providerId}&includeProjected=true`),
-      api.get<RecurringRule[]>(`/recordings/recurring?providerId=${providerId}&cancelled=false`),
+      api.get<Array<Recording | ProjectedOccurrence>>(`/recordings?providerId=${providerId}&includeProjected=true${profileFilter}`),
+      api.get<RecurringRule[]>(`/recordings/recurring?providerId=${providerId}&cancelled=false${profileFilter}`),
     ])
       .then(([rec, rul]) => {
         if (cancelled) return;

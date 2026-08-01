@@ -31,6 +31,14 @@ function writeRaw(key: string, value: string): void {
   }
 }
 
+function removeRaw(key: string): void {
+  try {
+    localStorage.removeItem(PREFIX + key);
+  } catch {
+    // ignore — see file header
+  }
+}
+
 const START_TAB_KEY = "startTab";
 const VALID_START_TABS = START_TAB_OPTIONS.map((o) => o.value) as string[];
 
@@ -55,4 +63,25 @@ export function getLastCategory(screen: CategoryScreen): string | null {
 
 export function setLastCategory(screen: CategoryScreen, categoryId: string): void {
   writeRaw(`category:${screen}`, categoryId);
+}
+
+// PLAN.md "Profiles" — "who's watching this device," the same per-browser
+// localStorage trick already used above, applied to iptv-recorder's
+// Netflix-profile-style attribution instead of a UI preference. null means
+// "no profile selected," a fully supported, expected default (profileId is
+// optional everywhere on the recorder side too) — recording/browsing works
+// identically either way, just without per-person attribution until someone
+// picks one.
+const PROFILE_ID_KEY = "profileId";
+
+export function getCurrentProfileId(): number | null {
+  const stored = readRaw(PROFILE_ID_KEY);
+  if (stored === null) return null;
+  const parsed = Number(stored);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+export function setCurrentProfileId(id: number | null): void {
+  if (id === null) removeRaw(PROFILE_ID_KEY);
+  else writeRaw(PROFILE_ID_KEY, String(id));
 }

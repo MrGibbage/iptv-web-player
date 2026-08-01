@@ -1406,10 +1406,29 @@ code (`Clients.tsx`), but nothing on this side scans one yet.
    iptv-recorder's worker opens), so a provider connection-slot limit could be hit sooner
    than expected once both features see real use. Not addressed; revisit if it proves a
    real problem in practice, same stance as #4.
-10. Per-person separation of recordings — see "Persisted UI settings + hamburger nav." UI
-    preferences are solved (localStorage, no auth needed), but "my recordings shouldn't show
-    up as her recordings" is a real, separate, bigger feature: some lightweight identity
-    (a no-password profile picker would likely be enough for a home LAN tool) plus an
-    iptv-recorder schema change (an owner/profile column on `recordings`, filtered by
-    whoever's asking). Deliberately not started — flagged as its own future decision, not
-    assumed to be in scope just because UI persistence landed.
+10. **Resolved 2026-08-01.** iptv-recorder gained Netflix-profile-style `profiles`
+    (no password, no auth boundary — see its own `server/src/routes/profiles.ts`) plus a
+    `profileId` column on both `recordings` and `recurring_rules`, in a separate session; this
+    round wired that through to here. `recorderClient.ts` gained `listProfiles()` and a
+    `profileId` param on both recording-creation functions; a new read-only
+    `GET /api/profiles` (`server/src/routes/profiles.ts`) — deliberately read-only, since
+    creating/deleting profiles stays iptv-recorder's own job via the "Open Recorder" link
+    rather than duplicated here. `localSettings.ts` gained `getCurrentProfileId()`/
+    `setCurrentProfileId()` — the same per-browser localStorage trick already used for UI
+    prefs, applied to "who's watching this device" instead. A "Who's watching" `<select>` sits
+    in both hamburgers (App.tsx's nav, EpgGuide.tsx's combined one) next to Start screen,
+    gated on recorder mode. `RecordDialog.tsx` silently attaches whichever profile is
+    currently selected (if any) to both one-off and recurring recordings; `Recordings.tsx`
+    filters its own list by that same profile when one's selected — no profile selected means
+    no filter, identical to before this feature existed, so nothing changes for anyone who
+    never picks one.
+    Verified end-to-end via Playwright against the real recorder: selected a real profile,
+    scheduled a real (6-hours-out, then immediately cancelled) one-off recording, confirmed
+    the created recording actually carried the right `profileId`, confirmed a `?profileId=`
+    filter both includes the right recording and excludes it under a different id, and
+    confirmed `Recordings.tsx`'s own network requests carry the filter correctly.
+    **Not done, deliberately:** no UI here to override which profile a specific recording is
+    for (it's always whatever's currently selected on this device — matches the Netflix mental
+    model of "who's watching," not a per-action picker) and no profile-name display next to
+    each recording row in a filtered list (low value once the list is already filtered to one
+    profile).

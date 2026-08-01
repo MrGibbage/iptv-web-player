@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { api, proxiedImageUrl, type EffectiveProvider, type EpgBounds, type EpgProgram, type EpgSearchResult, type EpgStatus, type LiveCategory, type LiveChannel, type ProviderSourceConfig } from "../api";
-import { getLastCategory, setLastCategory, setStartTab, type StartTab } from "../localSettings";
+import { api, proxiedImageUrl, type EffectiveProvider, type EpgBounds, type EpgProgram, type EpgSearchResult, type EpgStatus, type LiveCategory, type LiveChannel, type Profile, type ProviderSourceConfig } from "../api";
+import { getCurrentProfileId, getLastCategory, setCurrentProfileId, setLastCategory, setStartTab, type StartTab } from "../localSettings";
 import { TAB_LABELS, TAB_ORDER, type Tab } from "../navConfig";
 import { Player } from "./Player";
 import { RecordDialog } from "./RecordDialog";
@@ -143,6 +143,8 @@ export function EpgGuide({ tab, onSelectTab, startTabPref, onStartTabChange }: P
   const lastRefreshRef = useRef<number | null>(null);
   const [previewChannel, setPreviewChannel] = useState<{ channelId: string; name: string } | null>(null);
   const [recorderMode, setRecorderMode] = useState(false);
+  const [profiles, setProfiles] = useState<Profile[] | "loading" | "error">("loading");
+  const [profileId, setProfileId] = useState<number | null>(() => getCurrentProfileId());
   const [recordTarget, setRecordTarget] = useState<{ channel: LiveChannel; startMs: number; stopMs: number } | null>(null);
   const [statsOpen, setStatsOpen] = useState(false);
   const [epgInfoOpen, setEpgInfoOpen] = useState(false);
@@ -224,6 +226,23 @@ export function EpgGuide({ tab, onSelectTab, startTabPref, onStartTabChange }: P
       .then((c) => setRecorderMode(c.mode === "recorder"))
       .catch(() => {});
   }, []);
+
+  // PLAN.md "Profiles" — only meaningful once recorder mode is confirmed
+  // (profiles are iptv-recorder's own concept, nothing to fetch in local
+  // mode).
+  useEffect(() => {
+    if (!recorderMode) return;
+    api
+      .get<Profile[]>("/profiles")
+      .then(setProfiles)
+      .catch(() => setProfiles("error"));
+  }, [recorderMode]);
+
+  function handleProfileChange(value: string) {
+    const id = value === "" ? null : Number(value);
+    setProfileId(id);
+    setCurrentProfileId(id);
+  }
 
   // Categories on provider change. Restores the last category chosen on
   // this screen (PLAN.md "Persisted UI settings") once the real list loads
@@ -576,6 +595,21 @@ export function EpgGuide({ tab, onSelectTab, startTabPref, onStartTabChange }: P
                   ))}
                 </select>
               </label>
+              {recorderMode && (
+                <label className="hamburger-pref">
+                  Who's watching
+                  <select value={profileId ?? ""} onChange={(e) => handleProfileChange(e.target.value)} disabled={profiles === "loading" || profiles === "error"}>
+                    <option value="">No profile selected</option>
+                    {profiles !== "loading" &&
+                      profiles !== "error" &&
+                      profiles.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name}
+                        </option>
+                      ))}
+                  </select>
+                </label>
+              )}
               <div className="hamburger-divider" />
               <button type="button" onClick={handleRefresh} disabled={refreshing}>
                 {refreshing ? "Refreshing…" : "Refresh guide"}

@@ -255,6 +255,16 @@ export type RecurringRule = {
   updatedAt: string;
 };
 
+// PLAN.md "Profiles" — Netflix-profile-style attribution, read-only here
+// (creating/deleting profiles stays iptv-recorder's own job, reachable via
+// the Recordings screen's "Open Recorder" link). See localSettings.ts for
+// the "who's watching this device" persistence.
+export type Profile = {
+  id: number;
+  name: string;
+  createdAt: string;
+};
+
 export type RecurrencePattern = {
   daysOfWeek: number;
   startMinuteOfDay: number;

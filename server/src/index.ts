@@ -16,6 +16,7 @@ import { progressRoutes } from "./routes/progress.js";
 import { playbackRoutes } from "./routes/playback.js";
 import { statsRoutes } from "./routes/stats.js";
 import { recordingRoutes } from "./routes/recordings.js";
+import { profileRoutes } from "./routes/profiles.js";
 import { imageProxyRoutes } from "./routes/imageProxy.js";
 import { startEpgRefresh, stopEpgRefresh } from "./epg/index.js";
 import { startHlsSweep, stopHlsSweep, stopAllSessions } from "./playback/hlsSession.js";
@@ -77,6 +78,7 @@ await app.register(
     await api.register(playbackRoutes);
     await api.register(statsRoutes);
     await api.register(recordingRoutes);
+    await api.register(profileRoutes);
     await api.register(imageProxyRoutes);
   },
   { prefix: "/api" },

@@ -85,11 +85,26 @@ export type RecordingsFilter = {
   startBefore?: string;
   recurringRuleId?: number;
   includeProjected?: boolean;
+  profileId?: number;
 };
 
 export type RecurringRulesFilter = {
   providerId?: number;
   cancelled?: boolean;
+  profileId?: number;
+};
+
+// PLAN.md "Profiles" — Netflix-profile-style attribution (iptv-recorder's
+// own `profiles` table: no password, no auth boundary, see its
+// server/src/routes/profiles.ts). This app only ever reads the list (to
+// populate a "who's watching" picker) and passes a chosen id through when
+// scheduling — creating/deleting profiles stays iptv-recorder's own job,
+// reachable via the Recordings screen's "Open Recorder" link, the same
+// "don't re-implement its admin surface here" stance used everywhere else.
+export type Profile = {
+  id: number;
+  name: string;
+  createdAt: string;
 };
 
 export type RecurrencePattern = {
@@ -193,12 +208,16 @@ export async function testRecorderConnection(candidate: {
   }
 }
 
-export async function createOneOffRecording(input: { providerId: number; channelId: string; startTime: string; endTime: string }): Promise<Recording> {
+export async function createOneOffRecording(input: { providerId: number; channelId: string; startTime: string; endTime: string; profileId?: number }): Promise<Recording> {
   return (await recorderRequest("/recordings", { method: "POST", body: JSON.stringify(input) })) as Recording;
 }
 
-export async function createRecurringRecording(input: { providerId: number; channelId: string; recurrence: RecurrencePattern }): Promise<RecurringRule> {
+export async function createRecurringRecording(input: { providerId: number; channelId: string; recurrence: RecurrencePattern; profileId?: number }): Promise<RecurringRule> {
   return (await recorderRequest("/recordings", { method: "POST", body: JSON.stringify(input) })) as RecurringRule;
+}
+
+export async function listProfiles(): Promise<Profile[]> {
+  return (await recorderRequest("/profiles")) as Profile[];
 }
 
 export async function listRecordings(filter: RecordingsFilter = {}): Promise<Array<Recording | ProjectedOccurrence>> {

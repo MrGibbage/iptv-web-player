@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { api, ApiError } from "../api";
+import { getCurrentProfileId } from "../localSettings";
 import "./record.css";
 
 type Props = {
@@ -65,7 +66,7 @@ export function RecordDialog({ providerId, channelId, channelName, initialStart,
           setMessage({ text: "End time must be after start time.", isError: true });
           return;
         }
-        await api.post("/recordings", { providerId, channelId, startTime: start.toISOString(), endTime: end.toISOString() });
+        await api.post("/recordings", { providerId, channelId, startTime: start.toISOString(), endTime: end.toISOString(), profileId: getCurrentProfileId() ?? undefined });
         setMessage({ text: "Recording scheduled.", isError: false });
       } else {
         const mask = daysMask();
@@ -89,6 +90,7 @@ export function RecordDialog({ providerId, channelId, channelName, initialStart,
             endDate: endDateInput ? new Date(endDateInput).toISOString() : undefined,
             maxOccurrences,
           },
+          profileId: getCurrentProfileId() ?? undefined,
         });
         setMessage({ text: "Recurring recording scheduled.", isError: false });
       }

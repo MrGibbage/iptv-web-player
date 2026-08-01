@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { api, type ProviderSourceConfig } from "./api";
+import { api, type Profile, type ProviderSourceConfig } from "./api";
 import { ProviderSourceChoice } from "./pages/ProviderSourceChoice";
 import { RecorderConnection } from "./pages/RecorderConnection";
 import { LocalProviders } from "./pages/LocalProviders";
@@ -8,7 +8,7 @@ import { VodBrowser } from "./pages/VodBrowser";
 import { SeriesBrowser } from "./pages/SeriesBrowser";
 import { Diagnostics } from "./pages/Diagnostics";
 import { Recordings } from "./pages/Recordings";
-import { getStartTab, setStartTab, type StartTab } from "./localSettings";
+import { getCurrentProfileId, getStartTab, setCurrentProfileId, setStartTab, type StartTab } from "./localSettings";
 import { TAB_LABELS, TAB_ORDER, type Tab } from "./navConfig";
 
 type LoadState = ProviderSourceConfig | "loading" | "error";
@@ -32,7 +32,26 @@ function App() {
   const [tab, setTab] = useState<Tab>(() => getStartTab());
   const [navOpen, setNavOpen] = useState(false);
   const [startTabPref, setStartTabPref] = useState<StartTab>(() => getStartTab());
+  const [profiles, setProfiles] = useState<Profile[] | "loading" | "error">("loading");
+  const [profileId, setProfileId] = useState<number | null>(() => getCurrentProfileId());
   const navRef = useRef<HTMLDivElement>(null);
+
+  // PLAN.md "Profiles" — only meaningful in recorder mode (profiles are
+  // iptv-recorder's own concept; there's no such thing in local mode).
+  const recorderMode = config !== "loading" && config !== "error" && config.mode === "recorder";
+  useEffect(() => {
+    if (!recorderMode) return;
+    api
+      .get<Profile[]>("/profiles")
+      .then(setProfiles)
+      .catch(() => setProfiles("error"));
+  }, [recorderMode]);
+
+  function handleProfileChange(value: string) {
+    const id = value === "" ? null : Number(value);
+    setProfileId(id);
+    setCurrentProfileId(id);
+  }
 
   // Click-outside-to-close — standard expectation for a menu, especially on
   // a touchscreen where there's no "click elsewhere" affordance otherwise.
@@ -106,6 +125,21 @@ function App() {
                   ))}
                 </select>
               </label>
+              {recorderMode && (
+                <label className="hamburger-pref">
+                  Who's watching
+                  <select value={profileId ?? ""} onChange={(e) => handleProfileChange(e.target.value)} disabled={profiles === "loading" || profiles === "error"}>
+                    <option value="">No profile selected</option>
+                    {profiles !== "loading" &&
+                      profiles !== "error" &&
+                      profiles.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name}
+                        </option>
+                      ))}
+                  </select>
+                </label>
+              )}
             </div>
           )}
         </nav>

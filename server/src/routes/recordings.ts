@@ -44,6 +44,7 @@ const createBodySchema = {
     startTime: { type: "string", minLength: 1 },
     endTime: { type: "string", minLength: 1 },
     recurrence: recurrenceSchema,
+    profileId: { type: "integer", description: "Optional attribution — see GET /profiles. Whichever profile is currently selected on this device, if any." },
   },
   additionalProperties: false,
 } as const;
@@ -58,6 +59,7 @@ const listQuerySchema = {
     startBefore: { type: "string" },
     recurringRuleId: { type: "integer" },
     includeProjected: { type: "boolean" },
+    profileId: { type: "integer" },
   },
   additionalProperties: false,
 } as const;
@@ -67,6 +69,7 @@ const recurringListQuerySchema = {
   properties: {
     providerId: { type: "integer" },
     cancelled: { type: "boolean" },
+    profileId: { type: "integer" },
   },
   additionalProperties: false,
 } as const;
@@ -84,6 +87,7 @@ type CreateBody = {
   startTime?: string;
   endTime?: string;
   recurrence?: recorder.RecurrencePattern;
+  profileId?: number;
 };
 
 // Every route here talks to a sibling service over the network — translate
@@ -118,8 +122,8 @@ export async function recordingRoutes(app: FastifyInstance) {
       try {
         const body = request.body;
         const result = body.recurrence
-          ? await recorder.createRecurringRecording({ providerId: body.providerId, channelId: body.channelId, recurrence: body.recurrence })
-          : await recorder.createOneOffRecording({ providerId: body.providerId, channelId: body.channelId, startTime: body.startTime!, endTime: body.endTime! });
+          ? await recorder.createRecurringRecording({ providerId: body.providerId, channelId: body.channelId, recurrence: body.recurrence, profileId: body.profileId })
+          : await recorder.createOneOffRecording({ providerId: body.providerId, channelId: body.channelId, startTime: body.startTime!, endTime: body.endTime!, profileId: body.profileId });
         reply.code(201);
         return result;
       } catch (err) {
