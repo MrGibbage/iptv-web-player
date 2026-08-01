@@ -13,7 +13,11 @@
 import { START_TAB_OPTIONS, type StartTab } from "./navConfig";
 export type { StartTab };
 
-const PREFIX = "iptv-web-player:";
+// Renamed from "iptv-web-player:" on the 2026-08-01 Triton rebrand —
+// intentionally resets everyone's stored prefs once rather than keeping a
+// stale prefix alive forever; the file header above already treats losing
+// these as a total non-event.
+const PREFIX = "triton:";
 
 function readRaw(key: string): string | null {
   try {

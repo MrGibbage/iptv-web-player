@@ -1,5 +1,5 @@
 {
-  "name": "iptv-web-player",
+  "name": "triton",
   "private": true,
   "engines": {
     "node": ">=24"

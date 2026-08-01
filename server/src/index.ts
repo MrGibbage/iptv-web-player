@@ -30,7 +30,7 @@ const app = Fastify({ logger: true });
 await app.register(swagger, {
   openapi: {
     info: {
-      title: "iptv-web-player API",
+      title: "Triton API",
       description: "Live TV / EPG / VOD / Series web player backend. See PLAN.md in the repo for design rationale.",
       version: "0.1.0",
     },

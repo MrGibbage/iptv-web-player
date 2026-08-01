@@ -110,7 +110,7 @@ function App() {
   return (
     <main>
       {config === "loading" && <p>Loading…</p>}
-      {config === "error" && <p className="error">Could not reach iptv-web-player's own API.</p>}
+      {config === "error" && <p className="error">Could not reach Triton's own API.</p>}
       {/* PLAN.md "Guide UI polish, round 3" — the Guide screen renders its own
           copy of this same nav (folded into a single hamburger next to its
           preview dock, no separate row above it), so this one is hidden

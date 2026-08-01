@@ -1,7 +1,7 @@
 services:
-  iptv-web-player:
+  triton:
     build: .
-    container_name: iptv-web-player
+    container_name: triton
     restart: unless-stopped
 
     security_opt:
@@ -24,10 +24,10 @@ services:
     env_file:
       - ./server/.env
 
-    # Host:container — kept at the same host port the dev vite process used
-    # (5173) so the existing Caddy (iptv-web-player.pelorus.org) and
-    # Cloudflare Tunnel routes, both already pointing at
-    # 192.168.0.231:5173, needed no changes at all.
+    # Host:container — kept at the same host port used since the original
+    # dev vite process (5173), so the Caddy/Cloudflare Tunnel routes only
+    # ever needed a hostname change (iptv-web-player.pelorus.org ->
+    # triton.pelorus.org), never a backend-port change.
     ports:
       - "5173:4300"
 

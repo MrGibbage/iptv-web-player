@@ -1,4 +1,4 @@
-// Thin fetch wrapper for iptv-web-player's own API (proxied at /api by Vite
+// Thin fetch wrapper for Triton's own API (proxied at /api by Vite
 // in dev, see vite.config.ts). No auth header — this app has no auth at all
 // (single-user, LAN-only decision, see PLAN.md).
 

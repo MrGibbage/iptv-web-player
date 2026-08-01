@@ -86,7 +86,7 @@ export async function statsRoutes(app: FastifyInstance) {
         ),
       );
       const body = parts.filter(Boolean).join("");
-      const filename = `iptv-web-player-logs-${new Date().toISOString().slice(0, 19).replace(/:/g, "-")}.txt`;
+      const filename = `triton-logs-${new Date().toISOString().slice(0, 19).replace(/:/g, "-")}.txt`;
       reply.header("Content-Type", "text/plain; charset=utf-8");
       reply.header("Content-Disposition", `attachment; filename="${filename}"`);
       return reply.send(body || "(no log output yet)");
