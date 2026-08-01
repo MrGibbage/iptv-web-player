@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { api, type EffectiveProvider, type EpgBounds, type EpgProgram, type EpgSearchResult, type EpgStatus, type LiveCategory, type LiveChannel, type ProviderSourceConfig } from "../api";
+import { getLastCategory, setLastCategory } from "../localSettings";
 import { Player } from "./Player";
 import { RecordDialog } from "./RecordDialog";
 import { StatsPopover } from "./StatsPopover";
@@ -107,7 +108,20 @@ export function EpgGuide() {
   const [recordTarget, setRecordTarget] = useState<{ channel: LiveChannel; startMs: number; stopMs: number } | null>(null);
   const [statsOpen, setStatsOpen] = useState(false);
   const [epgInfoOpen, setEpgInfoOpen] = useState(false);
+  const [toolbarOpen, setToolbarOpen] = useState(false);
+  const toolbarRef = useRef<HTMLDivElement>(null);
   const autoRefreshTriggeredRef = useRef(false);
+
+  // Click-outside-to-close for the toolbar's own hamburger panel (PLAN.md
+  // "Persisted UI settings" / nav layout) — same reasoning as App.tsx's nav.
+  useEffect(() => {
+    if (!toolbarOpen) return;
+    function handlePointerDown(e: MouseEvent) {
+      if (toolbarRef.current && !toolbarRef.current.contains(e.target as Node)) setToolbarOpen(false);
+    }
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, [toolbarOpen]);
 
   const dayEndMs = nextMidnight(dayStartMs);
   const dayMinutes = (dayEndMs - dayStartMs) / 60_000;
@@ -153,7 +167,11 @@ export function EpgGuide() {
       .catch(() => {});
   }, []);
 
-  // Categories on provider change.
+  // Categories on provider change. Restores the last category chosen on
+  // this screen (PLAN.md "Persisted UI settings") once the real list loads
+  // — only if that id still exists in it; a stale id (switched providers,
+  // or the category itself no longer exists) just falls back to "All
+  // categories" the same as if nothing had ever been chosen.
   useEffect(() => {
     if (providerId === null) return;
     setCategories("loading");
@@ -162,7 +180,10 @@ export function EpgGuide() {
     api
       .get<LiveCategory[]>(`/providers/${providerId}/live/categories`)
       .then((result) => {
-        if (current) setCategories(result);
+        if (!current) return;
+        setCategories(result);
+        const stored = getLastCategory("guide");
+        if (stored && result.some((c) => c.categoryId === stored)) setCategoryId(stored);
       })
       .catch(() => {
         if (current) setCategories("error");
@@ -171,6 +192,11 @@ export function EpgGuide() {
       current = false;
     };
   }, [providerId]);
+
+  function handleCategoryChange(value: string) {
+    setCategoryId(value);
+    setLastCategory("guide", value);
+  }
 
   // Channels on provider/category change. Same stale-response guard as
   // LiveChannels.tsx, for the same reason: an unfiltered "all categories"
@@ -440,38 +466,47 @@ export function EpgGuide() {
 
   return (
     <div className="epg-root">
-      <div className="epg-toolbar">
-        <button onClick={() => changeDay(localMidnight(dayStartMs - DAY_MS / 2))} disabled={dayStartMs <= minDay}>
-          ◀
-        </button>
+      <div className="epg-toolbar" ref={toolbarRef}>
         <span className="epg-day-label">{fmtDay(dayStartMs)}</span>
-        <button onClick={() => changeDay(dayEndMs)} disabled={maxDay != null && dayStartMs >= maxDay}>
-          ▶
-        </button>
         <button onClick={jumpToNow}>Now</button>
-        {providers.length > 1 && (
-          <select value={providerId ?? ""} onChange={(e) => setProviderId(Number(e.target.value))}>
-            {providers.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
-        )}
-        <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} disabled={categories === "loading" || categories === "error"}>
-          <option value="">All categories</option>
-          {categories !== "loading" &&
-            categories !== "error" &&
-            categories.map((c) => (
-              <option key={c.categoryId} value={c.categoryId}>
-                {c.categoryName}
-              </option>
-            ))}
-        </select>
-        <input className="epg-search-input" type="search" placeholder="Search channels, titles, descriptions…" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
-        <button style={{ marginLeft: "auto" }} onClick={handleRefresh} disabled={refreshing}>
-          {refreshing ? "Refreshing…" : "Refresh"}
+        <button type="button" className="hamburger-trigger" style={{ marginLeft: "auto" }} aria-label="Guide options" onClick={() => setToolbarOpen((v) => !v)}>
+          ☰
         </button>
+        {toolbarOpen && (
+          <div className="hamburger-panel hamburger-panel-right epg-toolbar-panel">
+            <div className="row-actions">
+              <button onClick={() => changeDay(localMidnight(dayStartMs - DAY_MS / 2))} disabled={dayStartMs <= minDay}>
+                ◀ Previous day
+              </button>
+              <button onClick={() => changeDay(dayEndMs)} disabled={maxDay != null && dayStartMs >= maxDay}>
+                Next day ▶
+              </button>
+            </div>
+            {providers.length > 1 && (
+              <select value={providerId ?? ""} onChange={(e) => setProviderId(Number(e.target.value))}>
+                {providers.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+            )}
+            <select value={categoryId} onChange={(e) => handleCategoryChange(e.target.value)} disabled={categories === "loading" || categories === "error"}>
+              <option value="">All categories</option>
+              {categories !== "loading" &&
+                categories !== "error" &&
+                categories.map((c) => (
+                  <option key={c.categoryId} value={c.categoryId}>
+                    {c.categoryName}
+                  </option>
+                ))}
+            </select>
+            <input className="epg-search-input" type="search" placeholder="Search channels, titles, descriptions…" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
+            <button onClick={handleRefresh} disabled={refreshing}>
+              {refreshing ? "Refreshing…" : "Refresh"}
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="epg-player-row">

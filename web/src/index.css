@@ -228,30 +228,92 @@ main {
   opacity: 0.75;
 }
 
+/* PLAN.md "Persisted UI settings" / hamburger nav — the app-level nav links
+   (Providers/Guide/Movies/TV Shows/Recordings/Diagnostics) collapsed behind
+   a single hamburger button + panel, freeing a whole row of vertical space
+   app-wide. `position: relative` so .hamburger-panel (position: absolute)
+   anchors here rather than to some further-up ancestor. */
 .nav {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 20px;
+  gap: 10px;
   margin: 16px 0 24px;
-  border-bottom: 1px solid var(--border);
   padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+  position: relative;
 }
 
+.nav-current-tab {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-h);
+}
 
-.nav button {
-  font: inherit;
+/* Shared by App.tsx's app-level nav and EpgGuide.tsx's own toolbar (see
+   epg.css) — same button-triggers-an-absolute-panel shape, different
+   content and anchor point. */
+.hamburger-trigger {
+  width: 32px;
+  height: 32px;
   padding: 0;
+  font-size: 1.1rem;
+  line-height: 1;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-1);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.hamburger-panel {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  min-width: 200px;
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 10px;
+  box-sizing: border-box;
+}
+
+.hamburger-panel button {
+  font: inherit;
+  text-align: left;
+  padding: 7px 8px;
   border: none;
+  border-radius: var(--radius-sm);
   background: none;
   color: var(--text);
   cursor: pointer;
   font-size: 15px;
 }
 
-.nav button.active,
-.nav button:hover {
-  color: var(--accent);
+.hamburger-panel button.active,
+.hamburger-panel button:hover {
+  background: var(--accent-soft);
+  color: var(--text-h);
+}
+
+.hamburger-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 0;
+}
+
+.hamburger-pref {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px 8px;
+  font-size: 0.82rem;
+  color: var(--text-dim);
 }
 
 .page {

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, type EffectiveProvider, type Progress, type VodCategory, type VodInfo, type VodStream } from "../api";
+import { getLastCategory, setLastCategory } from "../localSettings";
 import { Player } from "./Player";
 import "./vod.css";
 
@@ -61,7 +62,12 @@ export function VodBrowser() {
       .then((cats) => {
         if (!current) return;
         setCategories(cats);
-        if (cats.length > 0) setSelectedCategoryId(cats[0].categoryId);
+        // Restores the last category chosen on this screen (PLAN.md
+        // "Persisted UI settings") if it still exists; otherwise falls back
+        // to the first category, same as before persistence existed.
+        const stored = getLastCategory("vod");
+        const restored = stored && cats.some((c) => c.categoryId === stored) ? stored : cats[0]?.categoryId;
+        if (restored) setSelectedCategoryId(restored);
       })
       .catch(() => {
         if (current) setCategories("error");
@@ -198,7 +204,14 @@ export function VodBrowser() {
           ) : (
             <div className="vod-category-list">
               {categories.map((cat) => (
-                <div key={cat.categoryId} className={`vod-category-row${cat.categoryId === selectedCategoryId ? " selected" : ""}`} onClick={() => setSelectedCategoryId(cat.categoryId)}>
+                <div
+                  key={cat.categoryId}
+                  className={`vod-category-row${cat.categoryId === selectedCategoryId ? " selected" : ""}`}
+                  onClick={() => {
+                    setSelectedCategoryId(cat.categoryId);
+                    setLastCategory("vod", cat.categoryId);
+                  }}
+                >
                   {cat.categoryName}
                 </div>
               ))}

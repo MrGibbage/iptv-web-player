@@ -22,7 +22,28 @@
   padding: 8px 12px;
   background: var(--bg-1);
   border-bottom: 1px solid var(--border);
-  flex-wrap: wrap;
+  position: relative;
+}
+
+/* PLAN.md "Persisted UI settings" / nav layout — day-nav, category/provider
+   pickers, search, and Refresh all collapse in here; only the day label and
+   "Now" button stay permanently visible in .epg-toolbar itself. Anchored to
+   the right (the trigger sits at the toolbar's right edge, see the inline
+   marginLeft:auto in EpgGuide.tsx) rather than .hamburger-panel's default
+   left-anchor. */
+.hamburger-panel-right {
+  left: auto;
+  right: 0;
+}
+
+.epg-toolbar-panel {
+  min-width: 260px;
+}
+
+.epg-toolbar-panel select,
+.epg-toolbar-panel input {
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .epg-toolbar button {

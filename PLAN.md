@@ -1026,6 +1026,60 @@ but true per-user separation of *recordings* (not just UI prefs) would be a mate
 bigger feature (real identity, likely an iptv-recorder schema change to own/tag recordings
 per person) that's being deliberately scoped as a separate decision, not bundled in here.
 
+## Persisted UI settings + hamburger nav (2026-08-01)
+
+Two things, both from the same conversation: "remember some UI choices across reloads" and
+"the Guide still doesn't show enough grid on a landscape tablet."
+
+**Persistence: `localStorage`, not a server setting — and deliberately not full auth.** The
+real question underneath "where do I save this" was multi-user: Skip and his daughter both
+use the same deployed instance from different devices, and a server-side singleton setting
+(the pattern every other setting in this app uses) would leak one's choices into the
+other's. `localStorage` sidesteps that for free — it's inherently per-browser/per-device
+already, so no auth system was needed for *this* — new `web/src/localSettings.ts` (thin
+try/catch-wrapped get/set helpers, namespaced keys) holds:
+- **Start screen** (`getStartTab`/`setStartTab`) — which tab loads first. Chosen from a
+  small "Start screen" `<select>` living inside the app-nav hamburger panel (see below), one
+  of `guide | vod | series | recordings` (Providers and Diagnostics are deliberately not
+  offered — neither is a sensible place to land by default). `App.tsx`'s `tab` state now
+  initializes from this instead of always `"providers"`.
+- **Last category per screen** (`getLastCategory`/`setLastCategory`, keyed `guide | vod |
+  series`) — `EpgGuide.tsx`/`VodBrowser.tsx`/`SeriesBrowser.tsx` all restore the stored id
+  once their real category list loads, but only if it still exists in that list (a provider
+  switch, or the category itself disappearing, both just fall back to the old default —
+  "All categories" for Guide, first category for VOD/Series — same as if nothing had ever
+  been chosen).
+
+**Explicitly out of scope, and why:** true per-*person* separation of **recordings** (not
+just UI prefs) is a materially different, bigger feature — real identity, and very likely an
+iptv-recorder schema change (an owner/profile column on its `recordings` table, filtered by
+whoever's asking) — deliberately not bundled into this change. If wanted later, a lightweight
+no-password profile picker would be enough for a home LAN tool; doesn't need real
+authentication.
+
+**Hamburger nav, both levels (the user's explicit choice over two lighter options — see the
+conversation, not just this file).** Two separate collapsible panels, not one shared
+mechanism (each has different content and different close-on-click semantics, so no generic
+component was worth extracting for just two uses):
+- **App-level** (`App.tsx`): the `Providers/Guide/Movies/TV Shows/Recordings/Diagnostics`
+  row collapses behind a single `☰` + the current tab's name, with the "Start screen"
+  preference living at the bottom of the same dropdown panel — a natural, coherent home for
+  it. Click-outside-to-close via a `mousedown` listener on `document`, standard expectation
+  for a menu especially on a touchscreen.
+- **Guide-level** (`EpgGuide.tsx`): the day-nav (◀/▶), provider/category selects, search
+  input, and Refresh button all collapse into their own `☰` panel (right-aligned, mirroring
+  the app nav's left alignment) — only the day label and "Now" button stay permanently
+  visible in the toolbar itself. Same click-outside pattern, independent open/close state
+  from the app nav.
+
+Combined with the two earlier "Guide UI polish" rounds' fixes (capped details panel, no more
+h1, current-hour default scroll), the landscape-tablet grid went from 0 visible rows (with a
+program selected, before today) to **6 rows with nothing selected, 3 rows with a full
+program description + Record button showing** — verified via Playwright at the tablet's
+real viewport dimensions. Persistence verified end-to-end: set start screen to Recordings via
+the hamburger, confirmed the value landed in `localStorage`, reloaded the page, confirmed the
+app opened directly on Recordings. Both packages typecheck and lint clean, no console errors.
+
 ## Open questions
 
 1. Provider feed size/refresh cost for EPG — worth measuring before accepting a third
@@ -1078,3 +1132,10 @@ per person) that's being deliberately scoped as a separate decision, not bundled
    iptv-recorder's worker opens), so a provider connection-slot limit could be hit sooner
    than expected once both features see real use. Not addressed; revisit if it proves a
    real problem in practice, same stance as #4.
+10. Per-person separation of recordings — see "Persisted UI settings + hamburger nav." UI
+    preferences are solved (localStorage, no auth needed), but "my recordings shouldn't show
+    up as her recordings" is a real, separate, bigger feature: some lightweight identity
+    (a no-password profile picker would likely be enough for a home LAN tool) plus an
+    iptv-recorder schema change (an owner/profile column on `recordings`, filtered by
+    whoever's asking). Deliberately not started — flagged as its own future decision, not
+    assumed to be in scope just because UI persistence landed.
