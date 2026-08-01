@@ -10,6 +10,7 @@
     "db:migrate": "tsx src/db/migrate.ts"
   },
   "dependencies": {
+    "@fastify/static": "^10.1.2",
     "@fastify/swagger": "^9.8.1",
     "@fastify/swagger-ui": "^6.1.0",
     "better-sqlite3": "^11.10.0",

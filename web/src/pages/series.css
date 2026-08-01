@@ -1,5 +1,5 @@
 /* Ported from Laomedeia (src/app.css, the "Series browser" block). Reuses
-   .vod-panel/.vod-sidebar/.vod-grid/.vod-poster-*/.vod-detail-* from
+   .vod-panel/.vod-sidebar/.vod-grid/.vod-poster-* / .vod-detail-* from
    vod.css — series categories/posters look identical to VOD's, per
    Laomedeia's own comment there. This file only has what's actually
    series-specific: season tabs and the episode list. Resume/Play from

@@ -1,0 +1,39 @@
+services:
+  iptv-web-player:
+    build: .
+    container_name: iptv-web-player
+    restart: unless-stopped
+
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+    # Heavier than a typical dashboard container on purpose — this spawns a
+    # real ffmpeg child process per concurrent viewer (see server/src/
+    # playback/hlsSession.ts), not just a single lightweight Node process.
+    mem_limit: 1g
+    memswap_limit: 1g
+    pids_limit: 200
+
+    # server/.env already holds ENCRYPTION_KEY (server/src/crypto.ts) — the
+    # same key that already encrypted the recorder connection's baseUrl/
+    # apiKey and anything else at rest in the existing SQLite DB. Reusing
+    # this exact file (not a fresh one) is required, not just convenient:
+    # a different key would make all of that undecryptable.
+    env_file:
+      - ./server/.env
+
+    # Host:container — kept at the same host port the dev vite process used
+    # (5173) so the existing Caddy (iptv-web-player.pelorus.org) and
+    # Cloudflare Tunnel routes, both already pointing at
+    # 192.168.0.231:5173, needed no changes at all.
+    ports:
+      - "5173:4300"
+
+    # Bind-mounts the exact same directory the dev tsx watch process was
+    # already using (server/data — SQLite DB, EPG cache, logs, hls-sessions)
+    # rather than starting fresh, so existing state (recorder connection,
+    # provider config, EPG cache) carries over untouched.
+    volumes:
+      - ./server/data:/app/server/data

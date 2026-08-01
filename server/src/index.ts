@@ -1,6 +1,9 @@
 import "dotenv/config";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import swagger from "@fastify/swagger";
 import swaggerUi from "@fastify/swagger-ui";
+import fastifyStatic from "@fastify/static";
 import Fastify from "fastify";
 import { db } from "./db/client.js";
 import { configRoutes } from "./routes/config.js";
@@ -54,16 +57,36 @@ app.get("/health/db", { schema: { tags: ["health"], summary: "DB connectivity ch
   return { status: "ok" };
 });
 
-await app.register(configRoutes);
-await app.register(providerRoutes);
-await app.register(epgRoutes);
-await app.register(liveRoutes);
-await app.register(vodRoutes);
-await app.register(seriesRoutes);
-await app.register(progressRoutes);
-await app.register(playbackRoutes);
-await app.register(statsRoutes);
-await app.register(recordingRoutes);
+// PLAN.md "Docker deployment" — everything under /api, matching exactly
+// what the built web client already fetches (web/src/api.ts hardcodes
+// `/api${path}` at build time; Vite's dev proxy rewrote /api away before
+// forwarding to this same server on its own port, so keeping /api here in
+// production instead of changing the frontend keeps both dev and prod on
+// one identical client-side convention). Health checks stay unprefixed at
+// the root — the conventional path for Docker/Uptime Kuma healthchecks.
+await app.register(
+  async (api) => {
+    await api.register(configRoutes);
+    await api.register(providerRoutes);
+    await api.register(epgRoutes);
+    await api.register(liveRoutes);
+    await api.register(vodRoutes);
+    await api.register(seriesRoutes);
+    await api.register(progressRoutes);
+    await api.register(playbackRoutes);
+    await api.register(statsRoutes);
+    await api.register(recordingRoutes);
+  },
+  { prefix: "/api" },
+);
+
+// Serves the built web client (web/dist) — dev mode uses Vite's own dev
+// server for this instead (see vite.config.ts's /api proxy); production
+// has no separate frontend process, just this one. No SPA fallback needed:
+// this app has no client-side routing (App.tsx's `tab` is plain component
+// state, not a URL), so there's nothing deeper than `/` to fall back for.
+const webDistDir = process.env.WEB_DIST_DIR ?? path.join(path.dirname(fileURLToPath(import.meta.url)), "../../web/dist");
+await app.register(fastifyStatic, { root: webDistDir });
 
 app.addHook("onClose", async () => {
   stopEpgRefresh();

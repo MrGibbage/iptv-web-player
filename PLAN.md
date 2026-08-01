@@ -1357,21 +1357,32 @@ code (`Clients.tsx`), but nothing on this side scans one yet.
    automatically yet, and an orphaned ffmpeg *process* with its directory already cleaned up
    some other way would still be fully invisible. An on-startup reconciliation pass is still
    the real fix; not done yet.
-7. **Partially resolved 2026-08-01:** now reachable at a real hostname —
+7. **Resolved 2026-08-01.** Reachable at a real hostname —
    `https://iptv-web-player.pelorus.org` via Caddy (LAN) + Cloudflare Tunnel (external),
    deliberately with no Cloudflare Access (this app is the family-facing product itself;
-   see the Holocron `docker-server/docker-services/iptv-web-player.md` for the rationale).
-   Needed `server.allowedHosts` added to `web/vite.config.ts` (Vite's dev server otherwise
-   403s any Host header it doesn't recognize). **Still open:** this is still the same
-   `tsx watch`/`vite --host` dev processes run manually on docker-server, not a real
-   docker-compose service — the hostname is only reachable while someone remembers to leave
-   those running, and a docker-compose conversion (same pattern as every other homelab
-   service) is still worth doing for that reason alone. The other original blocker — PWA
-   support needing HTTPS for its service worker to register at all — is now cleared, but the
-   actual web app manifest + icons + minimal service worker (installs to a home screen on
-   both Android and iOS; Safari's install flow is manual — Share → "Add to Home Screen," no
-   auto-prompt like Android gets — no offline mode or push notifications planned, so iOS's
-   gaps there don't matter) hasn't been built yet.
+   see the Holocron `docker-server/docker-services/iptv-web-player.md` for the rationale) —
+   and, the same day, converted to a real `docker-compose` deployment (single container;
+   `server/index.ts` now serves both the API, under an explicit `/api` prefix, and the built
+   web client via `@fastify/static`, on one port — no more separate Vite dev server process in
+   production). `compose.yml` maps the container back to host port 5173 so the Caddy/Tunnel
+   routes needed no changes, bind-mounts the same `server/data` the dev process already used,
+   and reuses `server/.env` verbatim (same `ENCRYPTION_KEY` — critical, since a different key
+   would've made the already-encrypted recorder connection undecryptable).
+   Two real bugs found along the way, both documented in the Holocron page: a pre-existing
+   CSS build bug (`series.css` had a stray `*/` inside a comment, invisible until production's
+   first real minify pass) and a `localhost`-baseUrl bug specific to containerizing (the
+   recorder connection's stored `http://localhost:3300` broke the instant this app moved into
+   its own container — fixed via a targeted SQL update of just the plaintext `base_url`
+   column, never touching the encrypted API key).
+   **New regression found, not yet fixed:** channel/VOD picon images are served by the
+   provider over plain HTTP — browsers now block them as mixed content since the app itself is
+   HTTPS. Cosmetic (grid/guide functionality is unaffected), but real and visible; likely fix
+   is a small image-proxy route re-serving picons over this app's own HTTPS origin, same shape
+   as the existing playback pipeline.
+   PWA support (installable to a phone home screen) is technically unblocked now that HTTPS
+   exists, but the actual manifest + icons + service worker haven't been built yet (Safari's
+   install flow is manual — Share → "Add to Home Screen" — no auto-prompt like Android gets;
+   no offline mode or push notifications planned, so iOS's gaps there don't matter).
 8. Recording resume/progress — VOD/series titles get watch-progress tracking (see
    "Resume/watch-progress tracking"); completed recordings don't, deliberately deferred
    when built (see "Recording support") since `watchProgress.mediaType` is a real SQLite
