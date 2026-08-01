@@ -18,6 +18,32 @@ type Props = {
   // indefinitely otherwise: only Close, switching to a different channel
   // (parent changes `mediaId`), or the server's own idle sweep end it.
   compact?: boolean;
+  // PLAN.md "Guide UI polish, round 6" (phone layout) — there's no room for
+  // even a small compact dock on a phone, so the phone Guide mounts a Player
+  // invisibly (see EpgGuide.tsx's .epg-phone-player-hidden) and relies on
+  // these three to get straight to fullscreen with no visible dock ever
+  // appearing:
+  //   - hideChrome: skip the card/page-header/"▶ Watch" wrapper, render only
+  //     the bare <video>. The invisible host div still needs a real (if
+  //     tiny) element in the DOM for requestFullscreen() and playback to
+  //     work at all — some browsers refuse both on display:none.
+  //   - autoFullscreen: call requestFullscreen() the instant playback
+  //     starts, in the same promise chain as the tap that triggered it
+  //     (not a later timer/effect) — that's what keeps it within the
+  //     browser's "was this a real user gesture" window even though the
+  //     stream's own start call is async.
+  //   - onFullscreenExit: fires only on the transition from fullscreen back
+  //     to not-fullscreen (Esc, swipe-down, back gesture) — the phone Guide
+  //     uses it to fully stop the session and return to the grid, since
+  //     unlike desktop's compact dock there's no inline resting state to
+  //     fall back to on phone.
+  hideChrome?: boolean;
+  autoFullscreen?: boolean;
+  onFullscreenExit?: () => void;
+  // Surfaces a failure that would otherwise be silent with hideChrome (no
+  // card, no "Playback failed" text visible anywhere) — the phone Guide uses
+  // this to show a brief toast and drop back to the grid.
+  onError?: (message: string) => void;
 } & (
   | { kind: "live" }
   | { kind: "vod"; containerExtension: string; startPositionSecs?: number }
@@ -73,7 +99,7 @@ const BACK_BUFFER_SECONDS = 600;
 const PROGRESS_SAVE_INTERVAL_MS = 20_000;
 
 export function Player(props: Props) {
-  const { providerId, mediaId, channelName, onClose, kind, compact } = props;
+  const { providerId, mediaId, channelName, onClose, kind, compact, hideChrome, autoFullscreen, onFullscreenExit, onError } = props;
   const containerExtension = props.kind === "vod" || props.kind === "series" ? props.containerExtension : undefined;
   const startPositionSecs = (props.kind === "vod" || props.kind === "series") && props.startPositionSecs ? props.startPositionSecs : undefined;
   const mediaType = kind === "vod" ? "vod" : kind === "series" ? "episode" : null;
@@ -142,6 +168,7 @@ export function Player(props: Props) {
                 console.error("HLS fatal error", data.details, data.error?.message);
                 setState("error");
                 setError(data.details);
+                onError?.(data.details);
               }
             });
             hls.loadSource(fullUrl);
@@ -151,15 +178,23 @@ export function Player(props: Props) {
           } else {
             setState("error");
             setError("This browser can't play HLS video.");
+            onError?.("This browser can't play HLS video.");
             return;
           }
           video.play().catch(() => {});
           setState("playing");
+          // autoFullscreen fires here, still within the promise chain the
+          // original tap started (not a later timer/effect) — see the prop's
+          // own comment on why that matters for iOS/strict-browser fullscreen
+          // gesture requirements.
+          if (autoFullscreen) video.requestFullscreen().catch(() => {});
         })
         .catch((err) => {
           if (cancelled) return;
+          const message = err instanceof Error ? err.message : String(err);
           setState("error");
-          setError(err instanceof Error ? err.message : String(err));
+          setError(message);
+          onError?.(message);
         });
     }, START_DEBOUNCE_MS);
 
@@ -187,6 +222,7 @@ export function Player(props: Props) {
         api.delete(`/stream/${sessionIdRef.current}`).catch(() => {});
       }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [providerId, mediaId, kind, containerExtension, mediaType, startPositionSecs, resumeOffsetSecs]);
 
   // Polls the session's own status so a server-side failure (ffmpeg died,
@@ -203,13 +239,16 @@ export function Player(props: Props) {
         .get<{ status: "starting" | "running" | "error"; error: string | null }>(`/stream/${sessionId}/status`)
         .then((s) => {
           if (s.status === "error") {
+            const message = s.error ?? "stream stopped unexpectedly";
             setState("error");
-            setError(s.error ?? "stream stopped unexpectedly");
+            setError(message);
+            onError?.(message);
           }
         })
         .catch(() => {});
     }, 5000);
     return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state]);
 
   // Periodic resume-position save while actually playing — the on-close
@@ -238,17 +277,31 @@ export function Player(props: Props) {
   // as a click), and native controls only make sense to show once fullscreen
   // actually engages, not the instant the button is clicked.
   const [isFullscreen, setIsFullscreen] = useState(false);
+  // Tracks the previous tick's value in a ref (not derivable from state
+  // alone within this same handler run) so onFullscreenExit only fires on
+  // the actual fullscreen->not-fullscreen transition, not on mount.
+  const wasFullscreenRef = useRef(false);
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
-    const handler = () => setIsFullscreen(document.fullscreenElement === video);
+    const handler = () => {
+      const nowFullscreen = document.fullscreenElement === video;
+      setIsFullscreen(nowFullscreen);
+      if (!nowFullscreen && wasFullscreenRef.current) onFullscreenExit?.();
+      wasFullscreenRef.current = nowFullscreen;
+    };
     document.addEventListener("fullscreenchange", handler);
     return () => document.removeEventListener("fullscreenchange", handler);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleFullscreen = () => {
     videoRef.current?.requestFullscreen().catch(() => {});
   };
+
+  if (hideChrome) {
+    return <video ref={videoRef} controls={isFullscreen} style={{ width: "100%", height: "100%", background: "#000" }} />;
+  }
 
   return (
     <div className={compact ? "card player-compact" : "card"} style={{ maxWidth: compact ? 360 : 720 }}>

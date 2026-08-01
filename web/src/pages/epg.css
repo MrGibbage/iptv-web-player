@@ -456,3 +456,85 @@
     transform: rotate(360deg);
   }
 }
+
+/* PLAN.md "Guide UI polish, round 6" — phone layout (EpgGuide.tsx's isPhone,
+   below ~600px width or ~500px height — see its own PHONE_MEDIA_QUERY
+   comment). Replaces .epg-player-row's permanent dock/details with a slim
+   toolbar; tapping a channel goes straight to fullscreen via a Player
+   mounted invisibly (.epg-phone-player-hidden) instead of ever showing an
+   inline dock; program details move to the on-demand bottom sheet below. */
+.epg-phone-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-1);
+}
+
+.epg-phone-toolbar .epg-search-input {
+  margin-top: 0;
+  padding-top: 0;
+}
+
+/* Deliberately not display:none — some browsers refuse both
+   requestFullscreen() and actual video decoding on a display:none element.
+   Kept in normal flow at 1x1px instead so the underlying <video> is real
+   enough to do both; fullscreen itself overrides this sizing completely
+   once engaged; only the brief pre-fullscreen starting window is ever
+   affected by it being this small. */
+.epg-phone-player-hidden {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.epg-phone-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  z-index: 30;
+  max-width: calc(100vw - 32px);
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 16px;
+  font-size: 0.84rem;
+  color: var(--text-h);
+  box-shadow: var(--shadow);
+  text-align: center;
+}
+
+.epg-phone-sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: flex-end;
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.epg-phone-sheet {
+  width: 100%;
+  max-height: 70vh;
+  overflow-y: auto;
+  box-sizing: border-box;
+  padding: 16px;
+  background: var(--bg-1);
+  border-top: 1px solid var(--border);
+  border-radius: var(--radius) var(--radius) 0 0;
+}
+
+/* Unclamped here (unlike the desktop details column's own .epg-detail-desc)
+   — the sheet already scrolls internally via max-height above, so there's
+   no reason to also truncate the text within it. */
+.epg-phone-sheet .epg-detail-desc {
+  -webkit-line-clamp: unset;
+  overflow: visible;
+}

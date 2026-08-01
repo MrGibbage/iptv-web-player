@@ -1231,6 +1231,64 @@ Agreed direction for the next session (not built yet):
 - Open question raised but not yet answered: whether the daughter's iOS device is
   phone-sized or tablet-sized — affects how aggressively this breakpoint needs to kick in.
 
+## Guide UI polish, round 6: phone layout (2026-08-01)
+
+Built the phone layout agreed in round 5. `EpgGuide.tsx` detects phone via a single
+`matchMedia("(max-width: 600px), (max-height: 500px)")` — a compound query, not just a width
+check, because phone *landscape* (~915×412 on a real device, confirmed via an actual phone
+screenshot) is wider than any sane portrait breakpoint but nowhere near tablet-landscape
+height (~1280×800); the height half of the query catches phone-landscape without also
+catching a sideways tablet. Regression-tested at both tablet orientations (1280×800,
+800×1280) via Playwright to confirm neither condition fires there.
+
+Below that breakpoint:
+- `.epg-player-row` (dock + details column) is replaced by a slim `.epg-phone-toolbar`
+  (just the hamburger + search input) — no placeholder, no permanent preview, no details
+  rail. Confirmed via Playwright: page height matches viewport exactly at both 412×915 and
+  915×412 (no scroll needed to reach the grid).
+- Tapping a channel cell calls the same `startPreview()` as desktop, but on phone this
+  mounts `Player` invisibly (`.epg-phone-player-hidden` — `position:fixed`, 1×1px,
+  `opacity:0`, kept in normal flow rather than `display:none` since some browsers refuse both
+  `requestFullscreen()` and video decoding on a display:none element) with two new Player
+  props: `hideChrome` (skip the card/header/video-controls wrapper, render a bare `<video>`)
+  and `autoFullscreen` (call `requestFullscreen()` immediately after `video.play()` succeeds,
+  inside the same promise chain the original tap started — not a later timer/effect, which is
+  what keeps it within the browser's "was this actually triggered by a user gesture" window
+  despite the stream-start API call in between). Verified end-to-end against the real sonix
+  account: tap → ~2.5–3.5s for the real ffmpeg session to spin up (consistent with this
+  provider) → video attaches and plays → fullscreen engages automatically, confirmed via
+  `document.fullscreenElement` in a real (headless) browser, not just code review.
+- Tapping a program *block* (as opposed to the channel cell) does NOT auto-play — it opens a
+  transient bottom sheet (`.epg-phone-sheet`, slides up from the bottom, same title/meta/
+  description content as desktop's details column, unclamped since the sheet already scrolls
+  internally) with its own explicit "▶ Watch live" / "⏺ Record" / "Close" buttons. Reasoned
+  split: tapping the channel itself is an unambiguous "play this now," but tapping a specific
+  program block (which might be hours in the future) reading what's on later today shouldn't
+  yank the screen into fullscreen — the sheet lets you look without committing to watch.
+- New Player prop `onFullscreenExit` fires only on the fullscreen→not-fullscreen transition
+  (Esc, swipe-down, back gesture — tracked via a `wasFullscreenRef`, not derivable from state
+  alone within the same handler run) — phone wires this to `setPreviewChannel(null)`, fully
+  stopping the session and returning to the grid with nothing playing inline, matching round
+  5's agreed direction (unlike desktop, phone has no inline resting state to fall back to).
+  Verified via Playwright: exiting fullscreen fires the session's `DELETE /stream/:id` request,
+  unmounts the hidden Player, and the server's own `/stats` confirms zero active sessions
+  afterward — no orphaned ffmpeg process left behind.
+- New Player prop `onError` surfaces failures that `hideChrome` would otherwise make
+  completely silent (no card, no "Playback failed" text anywhere) — phone shows a brief
+  auto-dismissing toast (`.epg-phone-toast`, clears itself after 4s) and drops back to the
+  grid.
+
+Known, accepted verification gap: headless Chromium's own Fullscreen API support is not a
+perfect stand-in for real mobile Safari/Chrome, particularly iOS Safari's historically
+stricter user-activation rules for `requestFullscreen()` after async work. The mechanism
+tested clean here (fullscreen reliably engaged even after the ~3s real network round-trip),
+and calling `requestFullscreen()` from within the same promise chain as the tap — rather than
+a disconnected timer — is exactly the pattern that preserves "transient activation" across
+async gaps in every real browser's implementation, but this hasn't been confirmed against an
+actual iPhone yet. Still unanswered from round 5: whether the daughter's iPhone 16 needs this
+phone breakpoint or the existing tablet layout already fits it — worth checking against her
+actual device before assuming this is done for both users.
+
 ## Open questions
 
 1. Provider feed size/refresh cost for EPG — worth measuring before accepting a third

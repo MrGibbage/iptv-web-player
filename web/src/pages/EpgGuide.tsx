@@ -100,6 +100,16 @@ interface SelectedProgram {
 // forward runway is considered "enough" before auto-triggering a refresh.
 const STALE_MARGIN_MS = 60 * 60 * 1000;
 
+// PLAN.md "Guide UI polish, round 6" (phone layout) — a compound query
+// rather than just a width check: phone *landscape* (~915x412 on a real
+// device, confirmed via screenshot) is wider than any sensible portrait-only
+// breakpoint but still has nowhere near a tablet's landscape height
+// (~1280x800), so max-height alone catches it without also catching a
+// tablet turned sideways. Neither condition fires for a tablet in either
+// orientation — confirmed against this app's actual tested tablet
+// dimensions (1280x800).
+const PHONE_MEDIA_QUERY = "(max-width: 600px), (max-height: 500px)";
+
 type Props = {
   tab: Tab;
   onSelectTab: (t: Tab) => void;
@@ -139,6 +149,8 @@ export function EpgGuide({ tab, onSelectTab, startTabPref, onStartTabChange }: P
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const autoRefreshTriggeredRef = useRef(false);
+  const [isPhone, setIsPhone] = useState(() => window.matchMedia(PHONE_MEDIA_QUERY).matches);
+  const [phoneError, setPhoneError] = useState<string | null>(null);
 
   // Click-outside-to-close for the combined hamburger panel.
   useEffect(() => {
@@ -149,6 +161,25 @@ export function EpgGuide({ tab, onSelectTab, startTabPref, onStartTabChange }: P
     document.addEventListener("mousedown", handlePointerDown);
     return () => document.removeEventListener("mousedown", handlePointerDown);
   }, [menuOpen]);
+
+  // One MediaQueryList for the whole compound query (see PHONE_MEDIA_QUERY) —
+  // "change" fires whenever the list's overall match result flips, covering
+  // both a real device rotation and a resized dev-tools viewport.
+  useEffect(() => {
+    const mq = window.matchMedia(PHONE_MEDIA_QUERY);
+    const update = () => setIsPhone(mq.matches);
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
+
+  // Auto-dismiss (PLAN.md "Guide UI polish, round 6") — the phone layout has
+  // no permanent status area to leave an error sitting in, so this surfaces
+  // just long enough to read then clears itself.
+  useEffect(() => {
+    if (!phoneError) return;
+    const timer = setTimeout(() => setPhoneError(null), 4000);
+    return () => clearTimeout(timer);
+  }, [phoneError]);
 
   const windowEndMs = bounds?.maxStopMs != null && bounds.maxStopMs > windowStartMs ? bounds.maxStopMs : windowStartMs + FALLBACK_WINDOW_MS;
   const windowMinutes = (windowEndMs - windowStartMs) / 60_000;
@@ -494,7 +525,7 @@ export function EpgGuide({ tab, onSelectTab, startTabPref, onStartTabChange }: P
 
   return (
     <div className="epg-root">
-      <div className="epg-player-row">
+      <div className={isPhone ? "epg-phone-toolbar" : "epg-player-row"}>
         <div className="epg-menu-col" ref={menuRef}>
           <button type="button" className="hamburger-trigger" aria-label="Menu" onClick={() => setMenuOpen((v) => !v)}>
             ☰
@@ -552,50 +583,125 @@ export function EpgGuide({ tab, onSelectTab, startTabPref, onStartTabChange }: P
             </div>
           )}
         </div>
-        <div className="epg-player-dock">
-          {previewChannel && providerId !== null ? (
-            <>
-              <Player providerId={providerId} kind="live" mediaId={previewChannel.channelId} channelName={previewChannel.name} compact onClose={() => setPreviewChannel(null)} />
-              <button type="button" className="epg-stats-trigger" title="Stream stats" onClick={() => setStatsOpen((v) => !v)}>
-                ⓘ
-              </button>
-              {statsOpen && <StatsPopover providerId={providerId} channelId={previewChannel.channelId} onClose={() => setStatsOpen(false)} />}
-            </>
-          ) : (
-            <div className="epg-player-placeholder">Select a channel to preview it here.</div>
-          )}
-        </div>
-        <div className="epg-player-details">
-          {selected ? (
-            <>
-              <div className="epg-detail-title">{selected.program.title}</div>
-              <div className="epg-detail-meta">
-                {selected.channelName} · {fmtDay(selected.program.startMs)} {fmtTime(selected.program.startMs)}–{fmtTime(selected.program.stopMs)}
-              </div>
-              <div className="epg-detail-desc">{selected.program.description || "No description."}</div>
-              {recorderMode && providerId !== null && channelsByEpgId.has(selected.program.channelId) && (
-                <div className="row-actions" style={{ marginTop: 10 }}>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setRecordTarget({
-                        channel: channelsByEpgId.get(selected.program.channelId)!,
-                        startMs: selected.program.startMs,
-                        stopMs: selected.program.stopMs,
-                      })
-                    }
-                  >
-                    ⏺ Record
+        {/* PLAN.md "Guide UI polish, round 6" — no permanent dock or details
+            column at all on phone: no placeholder when nothing's selected,
+            just the grid. Program details move to the transient bottom
+            sheet below instead (rendered outside this row, since it's an
+            overlay, not part of the toolbar's own flex layout). */}
+        {!isPhone && (
+          <>
+            <div className="epg-player-dock">
+              {previewChannel && providerId !== null ? (
+                <>
+                  <Player providerId={providerId} kind="live" mediaId={previewChannel.channelId} channelName={previewChannel.name} compact onClose={() => setPreviewChannel(null)} />
+                  <button type="button" className="epg-stats-trigger" title="Stream stats" onClick={() => setStatsOpen((v) => !v)}>
+                    ⓘ
                   </button>
-                </div>
+                  {statsOpen && <StatsPopover providerId={providerId} channelId={previewChannel.channelId} onClose={() => setStatsOpen(false)} />}
+                </>
+              ) : (
+                <div className="epg-player-placeholder">Select a channel to preview it here.</div>
               )}
-            </>
-          ) : (
-            <div className="epg-detail-empty">Select a program to see details.</div>
-          )}
+            </div>
+            <div className="epg-player-details">
+              {selected ? (
+                <>
+                  <div className="epg-detail-title">{selected.program.title}</div>
+                  <div className="epg-detail-meta">
+                    {selected.channelName} · {fmtDay(selected.program.startMs)} {fmtTime(selected.program.startMs)}–{fmtTime(selected.program.stopMs)}
+                  </div>
+                  <div className="epg-detail-desc">{selected.program.description || "No description."}</div>
+                  {recorderMode && providerId !== null && channelsByEpgId.has(selected.program.channelId) && (
+                    <div className="row-actions" style={{ marginTop: 10 }}>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setRecordTarget({
+                            channel: channelsByEpgId.get(selected.program.channelId)!,
+                            startMs: selected.program.startMs,
+                            stopMs: selected.program.stopMs,
+                          })
+                        }
+                      >
+                        ⏺ Record
+                      </button>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="epg-detail-empty">Select a program to see details.</div>
+              )}
+              <input className="epg-search-input" type="search" placeholder="Search channels, titles, descriptions…" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
+            </div>
+          </>
+        )}
+        {isPhone && (
           <input className="epg-search-input" type="search" placeholder="Search channels, titles, descriptions…" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
-        </div>
+        )}
       </div>
+
+      {isPhone && previewChannel && providerId !== null && (
+        <div className="epg-phone-player-hidden">
+          <Player
+            providerId={providerId}
+            kind="live"
+            mediaId={previewChannel.channelId}
+            channelName={previewChannel.name}
+            hideChrome
+            autoFullscreen
+            onFullscreenExit={() => setPreviewChannel(null)}
+            onError={(message) => {
+              setPhoneError(message);
+              setPreviewChannel(null);
+            }}
+            onClose={() => setPreviewChannel(null)}
+          />
+        </div>
+      )}
+
+      {isPhone && phoneError && <div className="epg-phone-toast">{phoneError}</div>}
+
+      {isPhone && selected && (
+        <div className="epg-phone-sheet-backdrop" onClick={() => setSelected(null)}>
+          <div className="epg-phone-sheet" onClick={(e) => e.stopPropagation()}>
+            <div className="epg-detail-title">{selected.program.title}</div>
+            <div className="epg-detail-meta">
+              {selected.channelName} · {fmtDay(selected.program.startMs)} {fmtTime(selected.program.startMs)}–{fmtTime(selected.program.stopMs)}
+            </div>
+            <div className="epg-detail-desc">{selected.program.description || "No description."}</div>
+            <div className="row-actions" style={{ marginTop: 10 }}>
+              <button
+                type="button"
+                onClick={() => {
+                  const channel = channelsByEpgId.get(selected.program.channelId);
+                  if (channel) startPreview(channel.channelId, channel.name);
+                  setSelected(null);
+                }}
+              >
+                ▶ Watch live
+              </button>
+              {recorderMode && providerId !== null && channelsByEpgId.has(selected.program.channelId) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRecordTarget({
+                      channel: channelsByEpgId.get(selected.program.channelId)!,
+                      startMs: selected.program.startMs,
+                      stopMs: selected.program.stopMs,
+                    });
+                    setSelected(null);
+                  }}
+                >
+                  ⏺ Record
+                </button>
+              )}
+              <button type="button" className="button-link" onClick={() => setSelected(null)}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {recordTarget && providerId !== null && (
         <RecordDialog
@@ -689,7 +795,22 @@ export function EpgGuide({ tab, onSelectTab, startTabPref, onStartTabChange }: P
               const loaded = channel.epgChannelId != null && progs !== undefined;
               return (
                 <div key={vi.key} className="epg-row" style={{ top: RULER_H + vi.start, height: vi.size, width: contentWidth }}>
-                  <div className="epg-channel-cell" title={channel.name} onClick={() => selectChannelAndProgram(channel, liveProgramFor(channel))}>
+                  <div
+                    className="epg-channel-cell"
+                    title={channel.name}
+                    onClick={() => {
+                      // PLAN.md "Guide UI polish, round 6" — on phone,
+                      // tapping the channel itself jumps straight to
+                      // fullscreen (no details step); tapping a specific
+                      // program block below opens the transient sheet
+                      // instead of also auto-playing (see that handler).
+                      if (isPhone) {
+                        startPreview(channel.channelId, channel.name);
+                      } else {
+                        selectChannelAndProgram(channel, liveProgramFor(channel));
+                      }
+                    }}
+                  >
                     {channel.streamIcon && <img src={channel.streamIcon} alt="" loading="lazy" />}
                     <span>{channel.name}</span>
                   </div>
@@ -706,7 +827,18 @@ export function EpgGuide({ tab, onSelectTab, startTabPref, onStartTabChange }: P
                         className={`epg-block${isSelected ? " epg-block-selected" : ""}${isPast ? " epg-block-past" : ""}`}
                         style={{ left, width }}
                         title={p.title}
-                        onClick={() => selectChannelAndProgram(channel, p)}
+                        onClick={() => {
+                          // On phone, a program block only opens the
+                          // transient details sheet (with its own explicit
+                          // "▶ Watch live" action) rather than immediately
+                          // starting playback — reading what's on later
+                          // today shouldn't yank the screen into fullscreen.
+                          if (isPhone) {
+                            setSelected({ program: p, channelName: channel.name });
+                          } else {
+                            selectChannelAndProgram(channel, p);
+                          }
+                        }}
                       >
                         <div className="epg-block-title">{p.title}</div>
                         <div className="epg-block-time">
