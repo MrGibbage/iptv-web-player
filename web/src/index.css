@@ -78,35 +78,53 @@
   }
 }
 
+/* height (not just min-height) is load-bearing (PLAN.md "Guide UI polish,
+   round 4" — a real bug found via testing): main's flex:1, and everything
+   flexing to fill it below (.guide-container, .epg-root, .epg-scroll), can
+   only cap itself at "available space" if some ancestor actually HAS a
+   bounded, definite height to distribute in the first place. min-height
+   alone lets #root itself grow past 100svh to match its content instead of
+   capping there — which is exactly what was happening: the whole page
+   (and <body>) silently grew to ~235,000px tall (the Guide grid's full
+   virtualized row total) instead of the Guide's own inner scroll area
+   containing it. height:100svh still lets other, shorter-than-viewport
+   pages render at their natural size (nothing here sets overflow:hidden,
+   so any page whose content genuinely exceeds the viewport still scrolls
+   normally at the body level, same as before) — only pages that actively
+   used flex:1 to fill remaining space (currently just the Guide) are
+   affected by this becoming a hard cap instead of a soft minimum. */
 #root {
   width: 1126px;
   max-width: 100%;
   margin: 0 auto;
   text-align: center;
   border-inline: 1px solid var(--border);
-  min-height: 100svh;
+  height: 100svh;
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
 }
 
 /* .epg-root relies on height:100% up the ancestor chain for the
-   virtualized scroll area — simpler to give it one concrete height here
-   than to thread height:100%/flex:1 through main/#root for one page.
-   Also deliberately breaks out of #root's 1126px width cap (standard
-   "full-bleed on a centered parent" trick: 100vw + negative vw margin
-   references the viewport directly, not the constrained parent) — this is
-   the app's primary live-viewing screen now (PLAN.md "Guide-centric Live
-   TV"), and a time-based grid genuinely benefits from using the full
-   screen width (more hours visible at once), unlike the narrower
-   form/grid pages this cap still suits fine. */
+   virtualized scroll area, via flex:1/min-height:0 threaded through
+   main/#root (see main's own rule below) — PLAN.md "Guide UI polish,
+   round 4" replaced an earlier `height: calc(100vh - 220px)` here, a magic
+   number that had already gone stale twice across three rounds of chrome
+   shrinking above it, each time leaving a bigger unexplained gap at the
+   bottom of the screen. flex-fill sizing has no such number to go stale.
+   margin's vertical component (-32px) cancels out main's own padding so
+   the preview reaches the literal top of the viewport and the grid reaches
+   the literal bottom — the horizontal component (-50vw, paired with
+   left:50%) is the standard "full-bleed on a centered parent" trick,
+   unchanged: this is the app's primary live-viewing screen, and a
+   time-based grid genuinely benefits from the full screen width. */
 .guide-container {
   width: 100vw;
   position: relative;
   left: 50%;
-  margin-left: -50vw;
-  height: calc(100vh - 220px);
-  min-height: 400px;
+  margin: -32px -50vw;
+  flex: 1;
+  min-height: 0;
   text-align: left;
   padding: 0 16px;
   box-sizing: border-box;
@@ -150,7 +168,17 @@ code {
   background: var(--code-bg);
 }
 
+/* flex:1/min-height:0 (a flex child of #root, itself already a flex
+   column) lets .guide-container's own flex:1/min-height:0 fill exactly the
+   real remaining viewport height with no magic number anywhere in the
+   chain — see .guide-container's own comment. display:flex here is inert
+   for every other page (a single non-flex child just renders at its
+   natural height either way), so this is safe app-wide, not guide-only. */
 main {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
   padding: 32px;
   text-align: left;
 }

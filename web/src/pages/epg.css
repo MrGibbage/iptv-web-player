@@ -5,9 +5,11 @@
    "Guide UI polish, round 3" (2026-08-01) replaced the old two-hamburger
    toolbar with a single combined one (.epg-menu-col) docked at the top-left
    of .epg-player-row itself — no more separate toolbar row above it at
-   all. Search is the one control that stayed permanently visible
-   (.epg-search-row) rather than folding into the menu; round 2 tried
-   hiding it too and it was worse. */
+   all. Round 4 moved search again, from its own always-visible row into
+   the details column itself (.epg-search-input now lives inside
+   .epg-player-details, pushed toward the bottom via margin-top:auto) —
+   removing that row's own vertical cost entirely, on top of round 3
+   keeping search out of the collapsed menu. */
 
 .epg-root {
   display: flex;
@@ -16,27 +18,25 @@
   min-width: 0;
 }
 
-/* Deliberately minimal — a single input, no padding beyond what the input
-   itself needs, so this costs as little vertical space as an
-   always-visible control reasonably can. */
-.epg-search-row {
-  padding: 8px 12px 0;
-  background: var(--bg-1);
-}
-
 .epg-search-input {
   width: 100%;
-  max-width: 480px;
   box-sizing: border-box;
+  margin-top: auto;
+  padding-top: 8px;
 }
 
 /* PLAN.md "Guide-centric Live TV" — the permanent mini-player dock above
    the grid, replacing the old bottom-only detail panel. flex-wrap lets the
    dock and the details panel reflow (side by side when there's room, details
-   falling below on a narrow viewport) with no JS layout branching. */
+   falling below on a narrow viewport) with no JS layout branching.
+   align-items defaults to stretch (not overridden here) so the dock and
+   details columns match heights — needed for .epg-search-input's
+   margin-top:auto push-to-bottom trick in .epg-player-details to have any
+   real space to push into. .epg-menu-col opts back out of that stretch
+   itself (see its own align-self below) since a stretched hamburger button
+   would look wrong. */
 .epg-player-row {
   display: flex;
-  align-items: flex-start;
   flex-wrap: wrap;
   gap: 16px;
   padding: 8px 12px 14px;
@@ -52,6 +52,7 @@
 .epg-menu-col {
   position: relative;
   flex-shrink: 0;
+  align-self: flex-start;
 }
 
 .epg-menu-col select {
@@ -118,10 +119,25 @@
   min-width: 260px;
   max-height: 30vh;
   overflow-y: auto;
+  display: flex;
+  flex-direction: column;
 }
 
+/* min-height:0 is load-bearing, not decorative (PLAN.md "Guide UI polish,
+   round 4" — a real bug, found via testing, that likely predates this
+   round): a flex item's min-height defaults to `auto`, meaning it won't
+   shrink below its own content's intrinsic height no matter what flex:1 +
+   overflow:auto say, and this element's child has an explicit height equal
+   to the *entire* virtualized row total (RULER_H + rowVirtualizer.
+   getTotalSize() — with "All categories" selected, ~4,518 channels *
+   52px ≈ 235,000px). Without this, .epg-scroll silently rendered at that
+   full height instead of clipping to the viewport and scrolling — every
+   earlier round's own verification screenshots were viewport-clipped and
+   happened to look identical either way, which is exactly how this stayed
+   hidden this long. */
 .epg-scroll {
   flex: 1;
+  min-height: 0;
   overflow: auto;
   position: relative;
   background: var(--bg-0);

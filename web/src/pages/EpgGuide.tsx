@@ -36,7 +36,9 @@ import "./epg.css";
 // App.tsx — its own nav row is hidden while this tab is active, to avoid
 // two stacked hamburgers). Search stays permanently visible instead (a
 // deliberate exception — round 2 tried hiding it in a menu too and it was
-// worse), in its own slim row above the player row.
+// worse); round 4 moved it again, into the details column itself (pushed
+// toward the bottom via CSS, below whatever program details or the empty
+// placeholder is showing) rather than costing its own row above everything.
 //
 // Still standalone rather than prop-driven for its own data (provider list,
 // categories, channels, programs) — there's no shared app-level state for
@@ -295,8 +297,23 @@ export function EpgGuide({ tab, onSelectTab, startTabPref, onStartTabChange }: P
 
   // Fetch programs for visible rows (plus overscan) that aren't cached yet
   // — the whole window (up to ~2.4 days), not a single day.
+  //
+  // Real bug found via testing (PLAN.md "Guide UI polish, round 4"): on
+  // first paint, before the flex-fill height chain (main -> .guide-container
+  // -> .epg-root -> .epg-scroll) has fully settled, the row virtualizer can
+  // transiently measure .epg-scroll's height as far larger than its real
+  // rendered size and report almost the *entire* channel list as "visible"
+  // in one shot — with "All categories" selected (4,518 live channels, a
+  // real provider list far bigger than the EPG's own ~1,974 known channels)
+  // that produced a single ~4,500-id request URL long enough to hit a hard
+  // HTTP 431 (request header fields too large). No realistic viewport ever
+  // actually shows anywhere near 200 rows at once (200 * ROW_H = 10,400px),
+  // so an apparent range wider than that is treated as exactly what it is —
+  // a stale/incorrect measurement, not a real visible range — and skipped;
+  // the very next real layout pass reports the true (small) range and this
+  // effect re-runs normally.
   useEffect(() => {
-    if (providerId === null || visibleEnd < 0) return;
+    if (providerId === null || visibleEnd < 0 || visibleEnd - visibleStart > 200) return;
     const timer = setTimeout(() => {
       const ids: string[] = [];
       for (let i = visibleStart; i <= visibleEnd && i < channels.length; i++) {
@@ -425,9 +442,21 @@ export function EpgGuide({ tab, onSelectTab, startTabPref, onStartTabChange }: P
   // most once per provider selection regardless of how often the 30s status
   // poll re-runs this effect; if the provider's own feed genuinely has no
   // more forward data, hammering it every 30s wouldn't fix that anyway.
+  //
+  // Real bug found via testing (PLAN.md "Guide UI polish, round 4"): status
+  // resolving does NOT mean bounds has too — refreshStatus() fetches bounds
+  // as a separate, slightly-later async call, only once it notices
+  // lastRefreshMs changed. This effect re-runs the instant either dependency
+  // changes, so it was firing once with status resolved but bounds still
+  // null — read as "out of runway" (bounds?.maxStopMs == null) — a spurious
+  // forced refresh on nearly every single page load, confirmed in the
+  // server's own logs. status.lastRefreshMs === null (truly never refreshed)
+  // is the one legitimate case to still act on before bounds exists at all,
+  // since bounds will never arrive on its own in that case.
   useEffect(() => {
-    if (!bounds && status === null) return;
+    if (!status) return;
     if (autoRefreshTriggeredRef.current || refreshing) return;
+    if (bounds === null && status.lastRefreshMs !== null) return;
     const outOfRunway = bounds?.maxStopMs == null || Date.now() > bounds.maxStopMs - STALE_MARGIN_MS;
     if (outOfRunway) {
       autoRefreshTriggeredRef.current = true;
@@ -465,10 +494,6 @@ export function EpgGuide({ tab, onSelectTab, startTabPref, onStartTabChange }: P
 
   return (
     <div className="epg-root">
-      <div className="epg-search-row">
-        <input className="epg-search-input" type="search" placeholder="Search channels, titles, descriptions…" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
-      </div>
-
       <div className="epg-player-row">
         <div className="epg-menu-col" ref={menuRef}>
           <button type="button" className="hamburger-trigger" aria-label="Menu" onClick={() => setMenuOpen((v) => !v)}>
@@ -568,6 +593,7 @@ export function EpgGuide({ tab, onSelectTab, startTabPref, onStartTabChange }: P
           ) : (
             <div className="epg-detail-empty">Select a program to see details.</div>
           )}
+          <input className="epg-search-input" type="search" placeholder="Search channels, titles, descriptions…" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
         </div>
       </div>
 

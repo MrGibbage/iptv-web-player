@@ -1134,6 +1134,68 @@ result correctly scrolls to and selects the right program, the combined menu's e
 (nav links, category, start screen, refresh) works, and non-Guide tabs still show their own
 unchanged nav. Both packages typecheck and lint clean, no console errors.
 
+## Guide UI polish, round 4 (2026-08-01)
+
+Requested changes were small — move search into the details column (bottom-aligned, matching
+an annotated screenshot), close the remaining top/bottom gaps around the Guide. Chasing the
+gaps down turned up two real, previously-hidden bugs, both fixed the same round.
+
+**The gaps: `.guide-container`'s `height: calc(100vh - 220px)` was a magic number that had
+already gone stale twice** (rounds 1-3 kept shrinking the chrome above it without ever
+updating 220). Replaced with real flex-fill sizing — `main` and `.guide-container` both
+`flex: 1; min-height: 0`, `.guide-container` also gets `margin: -32px -50vw` (the vertical
+component cancels `main`'s own padding so the preview reaches the literal top of the
+viewport; the horizontal component is the pre-existing full-bleed trick, unchanged). No
+magic number anywhere in the chain now, so it can't go stale the same way again.
+
+**Search moved into `.epg-player-details`** as its last child, pushed toward the bottom via
+`margin-top: auto` (classic flex "push to end") rather than costing a row of its own above
+the player row. Required restoring `align-items: stretch` on `.epg-player-row` (round 3 had
+set `flex-start` so the hamburger button wouldn't stretch to the dock's height — moved that
+opt-out to `align-self: flex-start` on `.epg-menu-col` specifically instead) so the details
+column actually stretches to match the dock's height, giving the search input's
+`margin-top: auto` real space to push into.
+
+**Real bug #1 — a false-positive auto-refresh on nearly every page load.** The round-1
+"auto-refresh when the guide is stale" effect depended on `[bounds, status]`, but `status`
+resolving does NOT mean `bounds` has too (`refreshStatus()` fetches bounds as a separate,
+later async call). The effect was firing once with `status` resolved but `bounds` still
+`null` — read as `bounds?.maxStopMs == null` → "out of runway" → an unconditional forced
+refresh, confirmed directly in the server's own logs (a `[epg] refresh started force=true`
+line on almost every test run). Fixed by explicitly waiting for a real bounds fetch to
+resolve before judging staleness, except for the one legitimate case (guide truly never
+refreshed, `status.lastRefreshMs === null`) where bounds will never arrive on its own.
+
+**Real bug #2 — the actual root cause of a resulting HTTP 431, and probably older than this
+session.** With "All categories" selected (4,518 real live channels — a provider list far
+bigger than the EPG's own ~1,974 *known* channels), the programs-fetch effect built a single
+request with ~4,500 channel ids and it exceeded the server's request-header size limit.
+Root-caused via direct DOM measurement (`getComputedStyle`) rather than guessing: `.epg-scroll`
+was rendering at ~235,000px tall — its own virtualized content's *full* height — instead of
+being capped to the viewport with internal scrolling, because (a) `.epg-scroll` never had
+`min-height: 0` (a flex item's `min-height` defaults to `auto`, which refuses to shrink below
+its own content's intrinsic size no matter what `flex: 1` + `overflow: auto` say — content
+here being `RULER_H + rowVirtualizer.getTotalSize()`, an explicitly huge height), and (b)
+even after fixing that, `#root` used `min-height: 100svh` rather than `height: 100svh` — a
+*minimum*, not a cap, so the whole flex-fill chain below it had nothing definite to size
+against and every ancestor (`<body>` included) silently grew to match content instead of
+capping at the viewport. Both fixed. This almost certainly predates today — every earlier
+round's own verification screenshots were viewport-clipped (`fullPage: false`), which looks
+visually identical whether the page is really 800px tall or secretly 235,000px tall with only
+the top of it in frame — a real gap in how this session verified layout changes, not just a
+one-off miss. Added a defensive cap in the programs-fetch effect too (skip if the apparent
+visible range exceeds 200 rows — no real viewport shows anywhere near that many at once) as
+cheap insurance against the same failure mode recurring for a different root cause later.
+
+Verified: 5 consecutive fresh page loads with zero HTTP errors (previously reproducible on
+most loads with "All categories" selected); a single program-fetch request now carries ~20
+ids (the real visible-row count) instead of ~4,500; the full ancestor chain's computed
+heights confirmed bounded and correct via direct DOM inspection (`#root`/`body` = viewport
+height, `.epg-scroll` = viewport height minus the player row, not the content's full
+234,972px); a non-Guide page (Movies) confirmed to still scroll normally at the body level
+when its own content exceeds the viewport, unaffected by the `#root` height change. Both
+packages typecheck and lint clean, no console errors.
+
 ## Open questions
 
 1. Provider feed size/refresh cost for EPG — worth measuring before accepting a third
