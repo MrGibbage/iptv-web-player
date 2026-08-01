@@ -92,11 +92,24 @@
 
 /* .epg-root relies on height:100% up the ancestor chain for the
    virtualized scroll area — simpler to give it one concrete height here
-   than to thread height:100%/flex:1 through main/#root for one page. */
+   than to thread height:100%/flex:1 through main/#root for one page.
+   Also deliberately breaks out of #root's 1126px width cap (standard
+   "full-bleed on a centered parent" trick: 100vw + negative vw margin
+   references the viewport directly, not the constrained parent) — this is
+   the app's primary live-viewing screen now (PLAN.md "Guide-centric Live
+   TV"), and a time-based grid genuinely benefits from using the full
+   screen width (more hours visible at once), unlike the narrower
+   form/grid pages this cap still suits fine. */
 .guide-container {
+  width: 100vw;
+  position: relative;
+  left: 50%;
+  margin-left: -50vw;
   height: calc(100vh - 220px);
   min-height: 400px;
   text-align: left;
+  padding: 0 16px;
+  box-sizing: border-box;
 }
 
 body {
@@ -264,15 +277,14 @@ main {
   gap: 8px;
 }
 
-/* Floats the Live TV preview dock over whatever page it's rendered from
-   (PLAN.md "Live TV preview") rather than pushing layout around — the
-   channel list stays scrollable/usable behind it. */
+/* The Guide screen's permanent mini-player dock sizes this inline (PLAN.md
+   "Guide-centric Live TV" — see epg.css's .epg-player-row/.epg-player-dock).
+   Used to float via position:fixed for the old LiveTV.tsx's bottom-right
+   preview dock; that screen is gone now, so this is just a plain sized box
+   inside whatever flex row its parent gives it. */
 .player-compact {
-  position: fixed;
-  bottom: 20px;
-  right: 20px;
-  z-index: 20;
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+  width: 320px;
+  flex-shrink: 0;
 }
 
 .button-link {

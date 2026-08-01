@@ -3,13 +3,12 @@ import { api, type ProviderSourceConfig } from "./api";
 import { ProviderSourceChoice } from "./pages/ProviderSourceChoice";
 import { RecorderConnection } from "./pages/RecorderConnection";
 import { LocalProviders } from "./pages/LocalProviders";
-import { LiveTV } from "./pages/LiveTV";
 import { EpgGuide } from "./pages/EpgGuide";
 import { VodBrowser } from "./pages/VodBrowser";
 import { SeriesBrowser } from "./pages/SeriesBrowser";
 
 type LoadState = ProviderSourceConfig | "loading" | "error";
-type Tab = "providers" | "live" | "guide" | "vod" | "series";
+type Tab = "providers" | "guide" | "vod" | "series";
 
 // PLAN.md "Credentials Model" — provider-source mode is the one global
 // blocking state everything else sits behind, the same way iptv-scheduler
@@ -21,10 +20,9 @@ function App() {
   // without touching the persisted mode until the user actually picks one —
   // there's no "unset" server state to bounce through in between.
   const [changingSource, setChangingSource] = useState(false);
-  // Plain state, not react-router-dom yet — only two real areas exist so
-  // far (provider management, Live TV browsing). Worth switching to actual
-  // routing once there are enough pages to justify it (Guide/VOD/Series),
-  // same threshold iptv-scheduler crossed before adopting it.
+  // Plain state, not react-router-dom yet — worth switching to actual
+  // routing if this grows further, same threshold iptv-scheduler crossed
+  // before adopting it.
   const [tab, setTab] = useState<Tab>("providers");
 
   function refresh() {
@@ -55,11 +53,8 @@ function App() {
           <button type="button" className={tab === "providers" ? "active" : ""} onClick={() => setTab("providers")}>
             Providers
           </button>
-          <button type="button" className={tab === "live" ? "active" : ""} onClick={() => setTab("live")}>
-            Live TV
-          </button>
           <button type="button" className={tab === "guide" ? "active" : ""} onClick={() => setTab("guide")}>
-            Guide
+            Live TV / Guide
           </button>
           <button type="button" className={tab === "vod" ? "active" : ""} onClick={() => setTab("vod")}>
             Movies
@@ -76,7 +71,6 @@ function App() {
       {!showChoice && config !== "loading" && config !== "error" && config.mode === "local" && tab === "providers" && (
         <LocalProviders onChangeSource={() => setChangingSource(true)} />
       )}
-      {!showChoice && configured && tab === "live" && <LiveTV />}
       {!showChoice && configured && tab === "guide" && (
         <div className="guide-container">
           <EpgGuide />

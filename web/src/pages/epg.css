@@ -1,7 +1,8 @@
 /* Ported from Laomedeia (src/components/epg.css). Trimmed: no
    .channel-cat-btn/.channel-cat-menu (CategoryFilter wasn't ported — this
-   page uses a plain <select>, same as LiveChannels.tsx) and no .nownext-bar
-   (Live TV's now/next strip isn't built yet). */
+   page uses a plain <select>). PLAN.md "Guide-centric Live TV" added the
+   .epg-player-* rules below (the permanent mini-player dock) and
+   .epg-timeout-* (moved here from the now-deleted live.css/LiveTV.tsx). */
 
 .epg-root {
   display: flex;
@@ -52,6 +53,60 @@
 
 .epg-status.epg-status-error {
   color: var(--now-line);
+}
+
+.epg-timeout-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.epg-timeout-input {
+  width: 56px;
+}
+
+/* PLAN.md "Guide-centric Live TV" — the permanent mini-player dock above
+   the grid, replacing the old bottom-only detail panel. flex-wrap does the
+   heavy lifting here: a compact ~320px dock leaves room for details beside
+   it, but once promoted (the same Player instance rendering full-size, see
+   Player.tsx) it no longer fits next to the details panel at any reasonable
+   width, so the row wraps and details fall below it instead — no JS layout
+   branching needed for that, just CSS. */
+.epg-player-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 14px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-1);
+}
+
+.epg-player-dock {
+  flex-shrink: 0;
+}
+
+.epg-player-placeholder {
+  width: 320px;
+  aspect-ratio: 16 / 9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-faint);
+  font-size: 0.82rem;
+  text-align: center;
+  padding: 12px;
+  box-sizing: border-box;
+}
+
+.epg-player-details {
+  flex: 1;
+  min-width: 260px;
 }
 
 .epg-scroll {
@@ -198,24 +253,6 @@
   background: var(--now-line);
   z-index: 3;
   pointer-events: none;
-}
-
-.epg-detail {
-  border-top: 1px solid var(--border);
-  background: var(--bg-1);
-  padding: 10px 14px;
-  display: flex;
-  gap: 16px;
-  align-items: flex-start;
-  min-height: 96px;
-  max-height: 170px;
-  overflow-y: auto;
-  box-sizing: border-box;
-}
-
-.epg-detail-body {
-  flex: 1;
-  min-width: 0;
 }
 
 .epg-detail-title {

@@ -660,7 +660,15 @@ handler, so cleanup only runs once ffmpeg has actually stopped.
 answers "does this exact title/episode have a saved position" for its own detail modal,
 not "show me everything I have in progress across the library."
 
-## Live TV preview + Live TV/Guide consolidation (2026-08-01)
+## Live TV preview + Live TV/Guide consolidation (2026-08-01, superseded same day)
+
+**Superseded a few hours later by "Guide-centric Live TV" below** — after seeing this in
+the browser, the follow-up feedback was "still not quite what I was thinking, the Guide
+screen is closest to it," landing on a different screen entirely (the Guide grid with a
+permanent mini-player docked above it) rather than the standalone `LiveTV.tsx` list this
+section describes. Left in place as a historical record of the interaction pattern that
+*did* carry over unchanged (`compact`/`onPromote`/`previewTimeoutSecs` on `Player.tsx`) —
+only `LiveTV.tsx`/`live.css` themselves and their floating-dock positioning were replaced.
 
 Prompted by comparing Live TV's plain list against Laomedeia's own Guide screen (a
 category-filtered, scrollable/searchable channel-first layout) and asking whether the app
@@ -712,15 +720,81 @@ throwaway instance still open (and immediately close) a real connection within t
 click. Harmless (cleaned up within the same click, dev-only, never occurs in a production
 build) — the code comment was softened to stop overclaiming an absolute guarantee.
 
+## Guide-centric Live TV (2026-08-01)
+
+The actual landing design, after seeing the standalone `LiveTV.tsx` screen above and
+deciding the Guide grid — wider, with a *permanent* mini-player docked above it and a
+details panel beside that — was the better fit. `LiveTV.tsx`/`live.css` are deleted; there
+is no more separate "Live TV" nav tab, just one "Live TV / Guide" entry pointing at
+`EpgGuide.tsx`. The `compact`/`onPromote`/`previewTimeoutSecs` mechanism on `Player.tsx`
+carried over unchanged — only where/how it's docked changed.
+
+- **Full-bleed width**: `EpgGuide.tsx` used to visibly sit inside the app's normal
+  ~1126px-wide centered shell (`#root`'s fixed width) — looked like it was using maybe 40%
+  of a wide screen. `.guide-container` (`index.css`) now breaks out of that with the
+  standard "full-bleed on a centered parent" trick (`width: 100vw; position: relative; left:
+  50%; margin-left: -50vw;` — vw units reference the viewport directly, bypassing the
+  parent's constrained width entirely). Deliberately scoped to just this one page: a
+  time-based grid genuinely benefits from the extra width (more hours visible without
+  scrolling); the narrower cap still suits the form/poster-grid pages fine, so `#root`
+  itself wasn't touched.
+- **Permanent mini-player + details row** (`.epg-player-row`, above the schedule grid, below
+  the toolbar): a `~320px` `Player` in `compact` mode on the left (or a placeholder box
+  before anything's picked), program details (title/time/description, the same markup the
+  old bottom-only detail panel used) to its right. `flex-wrap` does the layout work for
+  promoting — a compact dock leaves room for details beside it, but a promoted (`720px`)
+  player doesn't fit next to details at any reasonable width, so the row wraps and details
+  fall below it instead. No JS branching on layout needed for that, just CSS.
+- **Click behavior**: clicking a channel's name cell plays whatever's live on it right now
+  (looked up from the already-fetched program cache) and shows that program's details;
+  clicking a specific program block (any time slot, past/present/future) shows *that*
+  program's details and switches the mini-player to its channel. Both share one
+  `selectChannelAndProgram` helper that only resets `promoted` (shrinks an expanded player
+  back down) when the channel is actually changing — re-clicking the currently-playing
+  channel, or another block in the same row, never restarts or un-expands it. A picked
+  search result does the same (resolves its channel via the existing `channelsByEpgId`
+  reverse lookup and starts the preview) instead of only jumping the grid to that time slot.
+- **`previewTimeoutSecs` setting moved** from the old `LiveTV.tsx` into this screen's own
+  toolbar (`.epg-timeout-label`/`-input`) — same `GET`/`PUT /config/player` backing it,
+  no server changes needed.
+
+**Verified end-to-end against the real `sonix` account** via Playwright (1600×1000
+viewport): full-bleed width confirmed (grid rendered at exactly `window.innerWidth`);
+category filter confirmed (4,518 → 54 channels); clicking a channel cell started real
+playback (advancing `currentTime`) and showed the correct live-now program; clicking a
+different channel's program block switched both the details and the mini-player with
+exactly one new session started; re-clicking the already-playing channel was confirmed a
+no-op (no new session, no un-promoting); promoting via the "▶ Watch" button confirmed to
+continue the same session (no new `POST`, smooth playback through the transition, stayed
+expanded on a further re-click); the moved auto-close setting saved correctly and fired at
+the right time; search-result selection correctly started the mini-player too. Zero console
+errors.
+
+**Real gap found during this verification, not yet fixed**: if a session's id falls out of
+the server's in-memory `sessions` map — the only case seen so far is a dev-server restart
+(`tsx watch` reloading on file save) killing that map while ffmpeg keeps running underneath
+it, though anything else that clears the map without the process actually exiting would
+have the same effect — `stopSession()` (`hlsSession.ts`) no-ops (`if (!session) return`)
+instead of still trying to reap the orphaned process/directory. The idle sweep has the same
+blind spot: it only iterates the in-memory map, never cross-checks actual `data/hls-sessions/`
+directories or running `ffmpeg` processes against it. Two such orphans turned up during this
+round of testing and had to be cleaned up manually (`rm -rf` + confirming no matching
+process). Rare in production (a long-running process doesn't restart itself the way `tsx
+watch` does in dev), but a real, unbounded resource leak if it ever happens outside dev —
+worth a proper fix (e.g. an on-startup reconciliation pass over `data/hls-sessions/` against
+`ps`) at some point, not done here.
+
 ## Open questions
 
 1. Provider feed size/refresh cost for EPG — worth measuring before accepting a third
    independent XMLTV download as a non-issue long-term.
 2. M3U category listing re-parses the whole playlist on every call — no caching yet.
    Revisit if a real M3U playlist proves large enough to make browsing feel slow.
-3. Guide and Live TV each fetch their own provider/category/channel list independently —
-   worth lifting into shared app-level state once enough pages exist to make the
-   duplication actually cost something (extra requests, selections falling out of sync).
+3. Guide, Movies, and TV Shows each fetch their own provider/category/channel list
+   independently — worth lifting into shared app-level state once it's clear the
+   duplication actually costs something (extra requests, selections falling out of sync).
+   (Guide and Live TV used to be the two separate offenders here; they're one screen now —
+   see "Guide-centric Live TV.")
 4. One ffmpeg process per viewer, not shared per-channel (per the original decision) — if
    multiple household members ever watch the same channel simultaneously, this burns
    multiple of the provider's connection slots for one logical "household is watching X"
@@ -728,7 +802,8 @@ build) — the code comment was softened to stop overclaiming an absolute guaran
    if it proves a real problem in practice.
 5. No re-probing — a provider changing a channel's video/audio encoding will silently keep
    using the stale cached decision indefinitely. No manual "re-probe" trigger exists yet.
-6. Guide's schedule-timeline could fold into the new Live TV screen as a secondary
-   panel/tab instead of staying a fully separate top-level nav item — deliberately not
-   done in the "Live TV preview" pass above; revisit once it's clear whether the two
-   screens still feel redundant in practice.
+6. Orphaned playback sessions after the in-memory session map is lost (e.g. a dev-server
+   restart) — `stopSession()`/the idle sweep only know about sessions still in that map, so
+   a leftover ffmpeg process + `data/hls-sessions/` directory has nothing left to reap it.
+   See "Guide-centric Live TV" for the real instances found. Worth an on-startup
+   reconciliation pass eventually; not done yet.

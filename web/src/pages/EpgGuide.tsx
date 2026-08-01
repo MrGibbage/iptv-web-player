@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { api, type EffectiveProvider, type EpgBounds, type EpgProgram, type EpgSearchResult, type EpgStatus, type LiveCategory, type LiveChannel } from "../api";
+import { api, type EffectiveProvider, type EpgBounds, type EpgProgram, type EpgSearchResult, type EpgStatus, type LiveCategory, type LiveChannel, type PlayerSettings } from "../api";
 import { Player } from "./Player";
 import "./epg.css";
 
@@ -8,20 +8,27 @@ import "./epg.css";
 // channel-by-time grid, same staging-swap-backed data underneath it
 // (already proven against the real sonix account's ~2,000 channels/100k+
 // programs in the previous session). Adapted from Electron IPC
-// (window.epg.*) to this app's REST API. Recording is still dropped
-// entirely (v1 non-goal) but "▶ Watch" is back on the detail panel now that
-// playback exists — same idea as Laomedeia's own `streamsByEpgId` lookup:
-// the selected program's channelId is an XMLTV/EPG id, a different id space
-// than the live channel's own channelId (Xtream stream_id or M3U URL), so
-// watching from here needs a reverse lookup from one to the other.
+// (window.epg.*) to this app's REST API.
 //
-// Also standalone rather than prop-driven: Laomedeia's App.tsx lifts Live
-// TV's channel list and category selection so Guide and Live TV share one
-// selection. There's no shared app-level state yet (only two other pages
-// exist), so this page fetches its own provider/category/channel list
-// independently, same pattern as LiveChannels.tsx — acceptable duplication
-// for now, worth revisiting if/when multiple pages need to share a
-// selection.
+// PLAN.md "Guide-centric Live TV" — this is now the *only* live-viewing
+// screen; the separate preview-then-promote LiveTV.tsx built the previous
+// pass was deleted and folded in here instead, once it became clear the
+// grid itself already covers "pick a channel," leaving Live TV's plain list
+// with no distinct job. Clicking a channel cell or a program block starts a
+// permanent mini-player docked above the grid (`.epg-player-row`), with
+// that program's details to its right — the same `compact`/`onPromote`/
+// `previewTimeoutSecs` mechanism from that pass, just docked inline instead
+// of floating, and reused here directly rather than re-invented. The
+// selected program's channelId is an XMLTV/EPG id, a different id space
+// than the live channel's own channelId (Xtream stream_id or M3U URL) —
+// `channelsByEpgId` below is the reverse lookup from one to the other, same
+// as before.
+//
+// Still standalone rather than prop-driven: there's no shared app-level
+// state yet (only a few other pages exist), so this page fetches its own
+// provider/category/channel list independently, same pattern as
+// VodBrowser.tsx/SeriesBrowser.tsx — acceptable duplication for now, worth
+// revisiting if/when multiple pages need to share a selection.
 
 // Keep CH_COL_W in sync with .epg-channel-cell width in epg.css.
 const PX_PER_MIN = 4;
@@ -83,7 +90,10 @@ export function EpgGuide() {
   const [searchResults, setSearchResults] = useState<EpgSearchResult[]>([]);
   const [jumpTarget, setJumpTarget] = useState<{ channelId: string; timeMs: number } | null>(null);
   const lastRefreshRef = useRef<number | null>(null);
-  const [playing, setPlaying] = useState<{ channelId: string; name: string } | null>(null);
+  const [previewChannel, setPreviewChannel] = useState<{ channelId: string; name: string } | null>(null);
+  const [promoted, setPromoted] = useState(false);
+  const [settings, setSettings] = useState<PlayerSettings | "loading" | "error">("loading");
+  const [timeoutInput, setTimeoutInput] = useState("");
 
   const dayEndMs = nextMidnight(dayStartMs);
   const dayMinutes = (dayEndMs - dayStartMs) / 60_000;
@@ -117,6 +127,19 @@ export function EpgGuide() {
         if (list.length > 0) setProviderId(list[0].id);
       })
       .catch(() => setProviders("error"));
+  }, []);
+
+  // Mini-player auto-close setting, once on mount — see Player.tsx's
+  // `previewTimeoutSecs` comment for why this lives server-side as a user
+  // setting rather than a constant.
+  useEffect(() => {
+    api
+      .get<PlayerSettings>("/config/player")
+      .then((s) => {
+        setSettings(s);
+        setTimeoutInput(String(s.previewTimeoutSecs));
+      })
+      .catch(() => setSettings("error"));
   }, []);
 
   // Categories on provider change.
@@ -290,12 +313,49 @@ export function EpgGuide() {
     });
   };
 
+  // Starts/switches the permanent mini-player dock (PLAN.md "Guide-centric
+  // Live TV") — only resets `promoted` when actually switching to a
+  // different channel, so re-clicking the same channel's cell or another of
+  // its program blocks doesn't shrink an already-expanded player back down.
+  const startPreview = (channelId: string, name: string) => {
+    if (previewChannel?.channelId !== channelId) {
+      setPreviewChannel({ channelId, name });
+      setPromoted(false);
+    }
+  };
+
+  const liveProgramFor = (channel: LiveChannel): EpgProgram | null => {
+    if (!channel.epgChannelId) return null;
+    const list = programs.get(channel.epgChannelId);
+    return list?.find((p) => p.startMs <= nowMs && p.stopMs > nowMs) ?? null;
+  };
+
+  // Shared by both the channel-cell click (whatever's on now, or nothing if
+  // there's no data) and a specific program-block click (that exact slot,
+  // past/present/future) — both also start/switch the mini-player, since
+  // there's no separate "just look, don't play" gesture on this screen.
+  const selectChannelAndProgram = (channel: LiveChannel, program: EpgProgram | null) => {
+    setSelected(program ? { program, channelName: channel.name } : null);
+    startPreview(channel.channelId, channel.name);
+  };
+
   const openSearchResult = (result: EpgSearchResult) => {
     setSearchQuery("");
     setSelected({ program: result, channelName: result.channelName });
     const day = localMidnight(result.startMs);
     if (day !== dayStartMs) changeDay(day);
     setJumpTarget({ channelId: result.channelId, timeMs: result.startMs });
+    const channel = channelsByEpgId.get(result.channelId);
+    if (channel) startPreview(channel.channelId, channel.name);
+  };
+
+  const saveTimeoutSetting = () => {
+    const parsed = Number(timeoutInput);
+    if (!Number.isFinite(parsed) || parsed < 5 || parsed > 300 || settings === "loading" || settings === "error") {
+      if (settings !== "loading" && settings !== "error") setTimeoutInput(String(settings.previewTimeoutSecs));
+      return;
+    }
+    api.put<PlayerSettings>("/config/player", { previewTimeoutSecs: Math.round(parsed) }).then(setSettings);
   };
 
   const minDay = bounds?.minStartMs != null ? localMidnight(bounds.minStartMs) : null;
@@ -377,7 +437,47 @@ export function EpgGuide() {
         <button onClick={handleRefresh} disabled={refreshing}>
           {refreshing ? "Refreshing…" : "Refresh"}
         </button>
+        <label className="epg-timeout-label">
+          Preview auto-close after
+          <input type="number" min={5} max={300} className="epg-timeout-input" value={timeoutInput} onChange={(e) => setTimeoutInput(e.target.value)} onBlur={saveTimeoutSetting} />
+          sec
+        </label>
         <span className={`epg-status${status?.state === "error" ? " epg-status-error" : ""}`}>{statusText}</span>
+      </div>
+
+      <div className="epg-player-row">
+        <div className="epg-player-dock">
+          {previewChannel && providerId !== null ? (
+            <Player
+              providerId={providerId}
+              kind="live"
+              mediaId={previewChannel.channelId}
+              channelName={previewChannel.name}
+              compact={!promoted}
+              previewTimeoutSecs={!promoted && settings !== "loading" && settings !== "error" ? settings.previewTimeoutSecs : null}
+              onPromote={() => setPromoted(true)}
+              onClose={() => {
+                setPreviewChannel(null);
+                setPromoted(false);
+              }}
+            />
+          ) : (
+            <div className="epg-player-placeholder">Select a channel to preview it here.</div>
+          )}
+        </div>
+        <div className="epg-player-details">
+          {selected ? (
+            <>
+              <div className="epg-detail-title">{selected.program.title}</div>
+              <div className="epg-detail-meta">
+                {selected.channelName} · {fmtDay(selected.program.startMs)} {fmtTime(selected.program.startMs)}–{fmtTime(selected.program.stopMs)}
+              </div>
+              <div className="epg-detail-desc">{selected.program.description || "No description."}</div>
+            </>
+          ) : (
+            <div className="epg-detail-empty">Select a program to see details.</div>
+          )}
+        </div>
       </div>
 
       {searchActive ? (
@@ -443,7 +543,7 @@ export function EpgGuide() {
               const loaded = channel.epgChannelId != null && progs !== undefined;
               return (
                 <div key={vi.key} className="epg-row" style={{ top: RULER_H + vi.start, height: vi.size, width: contentWidth }}>
-                  <div className="epg-channel-cell" title={channel.name}>
+                  <div className="epg-channel-cell" title={channel.name} onClick={() => selectChannelAndProgram(channel, liveProgramFor(channel))}>
                     {channel.streamIcon && <img src={channel.streamIcon} alt="" loading="lazy" />}
                     <span>{channel.name}</span>
                   </div>
@@ -460,7 +560,7 @@ export function EpgGuide() {
                         className={`epg-block${isSelected ? " epg-block-selected" : ""}${isPast ? " epg-block-past" : ""}`}
                         style={{ left, width }}
                         title={p.title}
-                        onClick={() => setSelected({ program: p, channelName: channel.name })}
+                        onClick={() => selectChannelAndProgram(channel, p)}
                       >
                         <div className="epg-block-title">{p.title}</div>
                         <div className="epg-block-time">
@@ -475,29 +575,6 @@ export function EpgGuide() {
             })}
           </div>
         </div>
-      )}
-
-      {!searchActive && hasData && (
-        <div className="epg-detail">
-          {selected ? (
-            <div className="epg-detail-body">
-              <div className="epg-detail-title">{selected.program.title}</div>
-              <div className="epg-detail-meta">
-                {selected.channelName} · {fmtDay(selected.program.startMs)} {fmtTime(selected.program.startMs)}–{fmtTime(selected.program.stopMs)}
-              </div>
-              <div className="epg-detail-desc">{selected.program.description || "No description."}</div>
-              {channelsByEpgId.has(selected.program.channelId) && (
-                <button onClick={() => setPlaying({ channelId: channelsByEpgId.get(selected.program.channelId)!.channelId, name: selected.channelName })}>▶ Watch</button>
-              )}
-            </div>
-          ) : (
-            <div className="epg-detail-empty">Select a program to see details.</div>
-          )}
-        </div>
-      )}
-
-      {playing && providerId !== null && (
-        <Player providerId={providerId} kind="live" mediaId={playing.channelId} channelName={playing.name} onClose={() => setPlaying(null)} />
       )}
     </div>
   );
