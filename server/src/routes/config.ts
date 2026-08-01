@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { getProviderSourceConfig, getRecorderConfig, setProviderSourceMode, setRecorderConfig } from "../db/settings.js";
+import { clearRecorderConfig, getProviderSourceConfig, getRecorderConfig, setProviderSourceMode, setRecorderConfig } from "../db/settings.js";
 import { getRecorderUiUrl, listProviders as listRecorderProviders, testRecorderConnection } from "../recorderClient.js";
 
 // PLAN.md "Credentials Model" — the "ask first" setup screen: has this
@@ -160,6 +160,24 @@ export async function configRoutes(app: FastifyInstance) {
       }
       return toRecorderResponse(setRecorderConfig({ baseUrl, apiKey }));
     },
+  );
+
+  // PLAN.md "Forget recorder connection" — real gap found via testing:
+  // Providers' "Change source" -> "Use iptv-recorder's credentials" doesn't
+  // clear this at all (provider_source_config and recorder_config are
+  // separate tables), so re-choosing recorder mode always resurrects
+  // whatever was already saved. This is the only way to actually reset it.
+  app.delete(
+    "/config/recorder",
+    {
+      schema: {
+        tags: ["config"],
+        summary: "Forget the recorder connection",
+        description: "Clears the saved baseUrl/apiKey so the Providers screen shows a fresh connection form again — does not change provider-source mode itself.",
+        response: { 200: { $ref: "RecorderConfig#" } },
+      },
+    },
+    async () => toRecorderResponse(clearRecorderConfig()),
   );
 
   // Read-only proxy of iptv-recorder's own GET /providers — lets the

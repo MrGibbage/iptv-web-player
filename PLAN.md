@@ -1391,6 +1391,29 @@ historical record of what was true when written, not current fact. What changed:
 Full rationale and verification: Holocron `docker-server/docker-services/triton.md` and
 `opnsense/caddy-reverse-proxy/routing-inventory-drift-notes.md`.
 
+## Forget recorder connection (2026-08-01)
+
+Real gap found via testing: on the Providers screen, "Change source" → "Use iptv-recorder's
+credentials" doesn't clear the saved connection at all — `recorder_config` is a separate
+table from `provider_source_config`, untouched by that choice — so re-choosing recorder mode
+always resurrected whatever baseUrl/apiKey was already saved instead of offering a fresh
+form. There was no way to actually start over with a different recorder (new base URL, new
+API key, or a fresh QR scan) short of editing the database directly.
+
+Fixed with a new `DELETE /config/recorder` (`clearRecorderConfig()` in `db/settings.ts` —
+sets `baseUrl`/`apiKeyEncrypted` back to `null`) and a "Forget this recorder" button
+(`.button-danger`, matching the visual weight `Recordings.tsx` already uses for destructive
+actions — no confirmation dialog, consistent with this app's existing convention of not using
+them anywhere else) on `RecorderConnection.tsx`'s connected view. Clicking it clears the
+connection and falls straight back to the same "Connect to iptv-recorder" form (manual entry
+or QR scan) the first-time setup uses — no detour through the mode-choice screen, since this
+only resets the recorder connection itself, not provider-source mode.
+
+Verified end-to-end via Playwright against an isolated scratch instance (fresh DB, scratch
+port, deliberately not the real running container) — confirmed the button appears when
+connected, clicking it clears the server-side config, and the UI falls back to the fresh form.
+Real container confirmed untouched and still connected immediately after deploying.
+
 ## Open questions
 
 1. Provider feed size/refresh cost for EPG — worth measuring before accepting a third

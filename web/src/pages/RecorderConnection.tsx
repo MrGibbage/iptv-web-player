@@ -21,6 +21,7 @@ export function RecorderConnection({ onChangeSource }: Props) {
   const [error, setError] = useState<string>();
   const [saving, setSaving] = useState(false);
   const [scanning, setScanning] = useState(false);
+  const [forgetting, setForgetting] = useState(false);
 
   function refresh() {
     setConfig("loading");
@@ -62,6 +63,26 @@ export function RecorderConnection({ onChangeSource }: Props) {
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     await submitConnection(baseUrl, apiKey);
+  }
+
+  // Real gap found via testing: Change source -> "Use iptv-recorder's
+  // credentials" doesn't clear the saved connection at all — it's a
+  // separate table from provider-source mode, untouched by that choice —
+  // so re-choosing recorder mode always resurrects whatever was already
+  // saved instead of offering a fresh form. This is the only way to
+  // actually reset it and start over (a new base URL, a new API key, or a
+  // fresh QR scan).
+  async function handleForget() {
+    setError(undefined);
+    setForgetting(true);
+    try {
+      await api.delete("/config/recorder");
+      refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setForgetting(false);
+    }
   }
 
   // PLAN.md "QR pairing" — the scanned payload is a plain JSON string,
@@ -156,6 +177,12 @@ export function RecorderConnection({ onChangeSource }: Props) {
           ))}
         </ul>
       )}
+      {error && <p className="error">{error}</p>}
+      <p>
+        <button type="button" className="button-danger" onClick={handleForget} disabled={forgetting}>
+          {forgetting ? "Forgetting…" : "Forget this recorder"}
+        </button>
+      </p>
     </section>
   );
 }
