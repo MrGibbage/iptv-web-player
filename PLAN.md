@@ -1369,6 +1369,28 @@ decoded values, and the (deliberately unreachable) fake target correctly surface
 connection-test failure rather than anything silent. The real container was confirmed
 untouched and still correctly connected immediately after.
 
+## Renamed to Triton (2026-08-01)
+
+`iptv-web-player` renamed to **Triton** — Neptune's largest moon, continuing the naming of
+its predecessor, the Windows desktop client Laomedeia. This document, its own commit history,
+and every dated section above still say `iptv-web-player` throughout — read as accurate
+historical record of what was true when written, not current fact. What changed:
+
+- GitHub repo: `MrGibbage/iptv-web-player` → `MrGibbage/triton` (old name auto-redirects)
+- Local directory: `/srv/iptv-web-player` → `/srv/triton`
+- Hostname: `iptv-web-player.pelorus.org` → `triton.pelorus.org` — old Caddy + Cloudflare
+  Tunnel routes removed outright, not kept as an alias
+- `compose.yml` service/container name: `iptv-web-player` → `triton`
+- `localSettings.ts`'s localStorage key prefix (`iptv-web-player:` → `triton:`) — a
+  deliberate one-time reset of stored UI prefs, not a bug; the file's own header already
+  documents these as fine to lose
+- Small in-app branding: page title, a trident-emoji favicon, a "🔱 Triton" wordmark next to
+  both hamburger menus — deliberately not a hero section or a real logo asset
+- `README.md` fully rewritten (it was still a stale pre-code "planning" stub)
+
+Full rationale and verification: Holocron `docker-server/docker-services/triton.md` and
+`opnsense/caddy-reverse-proxy/routing-inventory-drift-notes.md`.
+
 ## Open questions
 
 1. Provider feed size/refresh cost for EPG — worth measuring before accepting a third
