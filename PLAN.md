@@ -1357,18 +1357,21 @@ code (`Clients.tsx`), but nothing on this side scans one yet.
    automatically yet, and an orphaned ffmpeg *process* with its directory already cleaned up
    some other way would still be fully invisible. An on-startup reconciliation pass is still
    the real fix; not done yet.
-7. Not deployed anywhere yet — still just `tsx watch`/`vite --host` dev processes run
-   manually on docker-server (reachable at its LAN IP while those happen to be running, not
-   a real URL). Deploying it as a proper docker-compose service behind Caddy at a real
-   `*.pelorus.org` hostname (same pattern as every other homelab service) is a real
-   prerequisite for two things: (a) actually being reachable reliably instead of depending
-   on a dev server someone remembered to leave running, and (b) PWA support, which needs
-   HTTPS for its service worker to register at all. Once behind a real hostname: add a web
-   app manifest + icons + minimal service worker so it installs to a home screen on both
-   Android and iOS (Safari's install flow is manual — Share → "Add to Home Screen," no
-   auto-prompt like Android gets — but otherwise works fine for this app's needs; no
-   offline mode or push notifications planned, so iOS's gaps there don't matter). Not
-   started.
+7. **Partially resolved 2026-08-01:** now reachable at a real hostname —
+   `https://iptv-web-player.pelorus.org` via Caddy (LAN) + Cloudflare Tunnel (external),
+   deliberately with no Cloudflare Access (this app is the family-facing product itself;
+   see the Holocron `docker-server/docker-services/iptv-web-player.md` for the rationale).
+   Needed `server.allowedHosts` added to `web/vite.config.ts` (Vite's dev server otherwise
+   403s any Host header it doesn't recognize). **Still open:** this is still the same
+   `tsx watch`/`vite --host` dev processes run manually on docker-server, not a real
+   docker-compose service — the hostname is only reachable while someone remembers to leave
+   those running, and a docker-compose conversion (same pattern as every other homelab
+   service) is still worth doing for that reason alone. The other original blocker — PWA
+   support needing HTTPS for its service worker to register at all — is now cleared, but the
+   actual web app manifest + icons + minimal service worker (installs to a home screen on
+   both Android and iOS; Safari's install flow is manual — Share → "Add to Home Screen," no
+   auto-prompt like Android gets — no offline mode or push notifications planned, so iOS's
+   gaps there don't matter) hasn't been built yet.
 8. Recording resume/progress — VOD/series titles get watch-progress tracking (see
    "Resume/watch-progress tracking"); completed recordings don't, deliberately deferred
    when built (see "Recording support") since `watchProgress.mediaType` is a real SQLite
