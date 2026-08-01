@@ -1330,6 +1330,45 @@ in this app's own Recorder Connection screen (the daughter's-eventual-camera-acc
 this HTTPS route was really added for) — iptv-recorder can already *generate* a pairing QR
 code (`Clients.tsx`), but nothing on this side scans one yet.
 
+## QR pairing (2026-08-01)
+
+Built the scan-to-configure flow flagged as deliberately out of scope above — the whole reason
+`iptv-recorder.pelorus.org` needed real HTTPS in the first place (`getUserMedia` requires a
+secure context). New `QrScanner.tsx`: `getUserMedia({ video: { facingMode: "environment" } })`
++ a `requestAnimationFrame` loop decoding each frame with `jsQR`, not the native
+`BarcodeDetector` API — Safari doesn't implement `BarcodeDetector` at all, including iOS,
+which is the actual target device this exists for. `RecorderConnection.tsx`'s not-yet-
+configured screen gained a "📷 Scan QR code" button; a successful scan `JSON.parse()`s the
+decoded text into `{apiUrl, apiKey}` (iptv-recorder's own `Clients.tsx` documents this exact
+payload shape), auto-fills both fields, and auto-submits through the same `PUT /config/recorder`
+path the manual form already used (still tests against iptv-recorder before saving anything —
+a garbled or wrong scan just surfaces as a normal form error, nothing silent).
+
+**Real, unrelated navigation bug found and fixed while building this — not a QR-scanner bug,
+but one that directly blocked reaching the scanner at all.** A first-time user choosing
+"recorder mode" from `ProviderSourceChoice` used to stay on whatever tab the Guide start-tab
+preference defaulted to (`guide`). With no recorder connection configured yet, `EpgGuide`'s
+own providers fetch immediately fails and its error state is a bare `<p>` with no navigation
+at all — `App.tsx` only renders its own nav when `tab !== "guide"`, and `EpgGuide`'s early-
+return error states don't render its own hamburger either. Genuinely no way to reach Providers
+(and therefore the connection form or the QR scanner) short of a precisely-timed manual
+refresh. Fixed by having `handleChosen` (`App.tsx`) navigate straight to the `providers` tab
+right after the provider-source choice is made — the actual next step regardless of which mode
+was picked. The narrower remaining case (leaving mid-setup, reloading later, landing back on
+the same dead end) isn't fixed — see Open Questions.
+
+**Verified with a real fake camera, not just code review.** Built a real QR PNG encoding a test
+`{apiUrl, apiKey}` payload, converted it to a Y4M video Chromium's `--use-fake-device-for-
+media-stream`/`--use-file-for-fake-video-capture` flags can loop as a camera feed, and ran the
+actual first-time flow (choice screen → recorder → scan → auto-submit) against an *isolated
+scratch instance* (fresh scratch DB, scratch port, no `ENCRYPTION_KEY` overlap) — deliberately
+not the real running container, to avoid any risk to the already-working production recorder
+connection. Confirmed: `getUserMedia` succeeds, `jsQR` decodes the exact payload from live
+video frames, both fields auto-fill correctly, `PUT /config/recorder` fires with the exact
+decoded values, and the (deliberately unreachable) fake target correctly surfaces as a normal
+connection-test failure rather than anything silent. The real container was confirmed
+untouched and still correctly connected immediately after.
+
 ## Open questions
 
 1. Provider feed size/refresh cost for EPG — worth measuring before accepting a third
@@ -1432,3 +1471,13 @@ code (`Clients.tsx`), but nothing on this side scans one yet.
     model of "who's watching," not a per-action picker) and no profile-name display next to
     each recording row in a filtered list (low value once the list is already filtered to one
     profile).
+11. Narrower version of the navigation dead-end fixed under "QR pairing" above: choosing a
+    provider source now lands on Providers immediately, but someone who leaves mid-setup
+    (closes the tab before finishing the recorder connection form) and comes back later still
+    reloads straight into the Guide start-tab default, hits the same providers-fetch failure,
+    and lands on the same nav-less error state — just without the one-time `handleChosen`
+    redirect to save them, since that only fires on the initial choice. The deeper fix (Guide's
+    own early-return error/loading/empty states rendering *some* way to navigate elsewhere,
+    or `App.tsx` picking a smarter default tab whenever `configured` is true but the recorder
+    connection itself isn't) wasn't built — flagged rather than silently left for someone to
+    rediscover the hard way.

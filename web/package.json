@@ -12,6 +12,7 @@
   "dependencies": {
     "@tanstack/react-virtual": "^3.14.5",
     "hls.js": "^1.6.15",
+    "jsqr": "^1.4.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"
   },

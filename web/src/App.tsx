@@ -74,9 +74,24 @@ function App() {
 
   useEffect(refresh, []);
 
+  // Real bug found via testing (PLAN.md "QR pairing"): choosing a provider
+  // source used to leave `tab` at whatever it already defaulted to (the
+  // Guide start-tab preference) — harmless once a connection is actually
+  // configured, but for a genuinely first-time choice, Guide's own
+  // providers-fetch fails immediately (nothing configured yet) and its
+  // error state renders with *no navigation at all* (App.tsx only shows
+  // its own nav when tab !== "guide", and EpgGuide's early-return error
+  // states don't render its own hamburger either) — a real dead end, with
+  // no way to reach Providers (and therefore no way to reach the QR
+  // scanner or the manual connection form) short of a hard refresh timed
+  // just right. Landing on Providers immediately after the choice — where
+  // the actual next step lives regardless of which mode was picked — closes
+  // this for the first-time path; see PLAN.md's open questions for the
+  // narrower remaining case (leaving mid-setup and reloading later).
   function handleChosen() {
     setChangingSource(false);
     refresh();
+    selectTab("providers");
   }
 
   function selectTab(t: Tab) {

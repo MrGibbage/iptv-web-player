@@ -1,0 +1,24 @@
+.qr-scanner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  margin: 12px 0;
+}
+
+.qr-scanner-video {
+  width: 100%;
+  max-width: 360px;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  background: #000;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+}
+
+/* The scan loop draws each video frame here to read pixels via
+   getImageData — never meant to be seen, the live preview above is the
+   <video> element itself. */
+.qr-scanner-canvas {
+  display: none;
+}
