@@ -807,3 +807,15 @@ worth a proper fix (e.g. an on-startup reconciliation pass over `data/hls-sessio
    a leftover ffmpeg process + `data/hls-sessions/` directory has nothing left to reap it.
    See "Guide-centric Live TV" for the real instances found. Worth an on-startup
    reconciliation pass eventually; not done yet.
+7. Not deployed anywhere yet — still just `tsx watch`/`vite --host` dev processes run
+   manually on docker-server (reachable at its LAN IP while those happen to be running, not
+   a real URL). Deploying it as a proper docker-compose service behind Caddy at a real
+   `*.pelorus.org` hostname (same pattern as every other homelab service) is a real
+   prerequisite for two things: (a) actually being reachable reliably instead of depending
+   on a dev server someone remembered to leave running, and (b) PWA support, which needs
+   HTTPS for its service worker to register at all. Once behind a real hostname: add a web
+   app manifest + icons + minimal service worker so it installs to a home screen on both
+   Android and iOS (Safari's install flow is manual — Share → "Add to Home Screen," no
+   auto-prompt like Android gets — but otherwise works fine for this app's needs; no
+   offline mode or push notifications planned, so iOS's gaps there don't matter). Not
+   started.
