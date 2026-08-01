@@ -545,10 +545,9 @@ export function EpgGuide({ tab, onSelectTab, startTabPref, onStartTabChange }: P
   return (
     <div className="epg-root">
       <div className={isPhone ? "epg-phone-toolbar" : "epg-player-row"}>
-        <span className="brand">🔱 Triton</span>
         <div className="epg-menu-col" ref={menuRef}>
-          <button type="button" className="hamburger-trigger" aria-label="Menu" onClick={() => setMenuOpen((v) => !v)}>
-            ☰
+          <button type="button" className="hamburger-trigger brand-trigger" aria-label="Menu" onClick={() => setMenuOpen((v) => !v)}>
+            🔱
           </button>
           {menuOpen && (
             <div className="hamburger-panel">
