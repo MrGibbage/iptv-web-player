@@ -225,6 +225,15 @@ export async function skipOccurrence(ruleId: number, date: string): Promise<Reco
   return (await recorderRequest(`/recordings/recurring/${ruleId}/skip`, { method: "POST", body: JSON.stringify({ date }) })) as Recording | SkipException;
 }
 
+// PLAN.md "Recorder page shortcut" — iptv-recorder's own GET /config/ui-url
+// (env-backed, not a DB setting on its side) reports where its Settings UI
+// is actually hosted. Used to power a plain "Open Recorder" link/button
+// rather than this app ever re-implementing any of iptv-recorder's own
+// admin surface (providers, storage/retention, clients, profiles) itself.
+export async function getRecorderUiUrl(): Promise<{ url: string }> {
+  return (await recorderRequest("/config/ui-url")) as { url: string };
+}
+
 // Not fetched here — the caller (routes/recordings.ts's POST /recordings/:id/stream)
 // hands this straight to ffmpeg as its input URL + -headers, the same way a
 // live channel or VOD title's own resolved streamUrl is handed to ffmpeg by

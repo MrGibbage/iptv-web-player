@@ -133,6 +133,22 @@ export function Recordings() {
   const cancelSeries = (ruleId: number) => runAction("Cancel series", () => api.delete(`/recordings/recurring/${ruleId}`));
   const skipOne = (ruleId: number, startTime: string) => runAction("Skip", () => api.post(`/recordings/recurring/${ruleId}/skip`, { date: dateOnly(startTime) }));
 
+  // Opens synchronously (window.open right away, on the click itself) and
+  // only fills in the real destination once it resolves — window.open()
+  // called after an already-awaited fetch is exactly the pattern popup
+  // blockers (Safari especially) tend to kill, since by then it's no longer
+  // happening within the original click's own gesture.
+  async function openRecorder() {
+    const tab = window.open("", "_blank");
+    try {
+      const { url } = await api.get<{ url: string }>("/config/recorder/ui-url");
+      if (tab) tab.location.href = url;
+    } catch (err) {
+      tab?.close();
+      setActionMessage({ text: err instanceof Error ? err.message : String(err), isError: true });
+    }
+  }
+
   if (config === "loading") return <p>Loading…</p>;
   if (config === "error") return <p className="error">Could not load configuration.</p>;
   if (config.mode !== "recorder") {
@@ -160,6 +176,9 @@ export function Recordings() {
           )}
           <button type="button" onClick={refresh} disabled={loading}>
             {loading ? "Refreshing…" : "Refresh"}
+          </button>
+          <button type="button" onClick={openRecorder}>
+            Open Recorder ↗
           </button>
         </div>
       </div>

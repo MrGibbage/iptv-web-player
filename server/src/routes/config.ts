@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { getProviderSourceConfig, getRecorderConfig, setProviderSourceMode, setRecorderConfig } from "../db/settings.js";
-import { listProviders as listRecorderProviders, testRecorderConnection } from "../recorderClient.js";
+import { getRecorderUiUrl, listProviders as listRecorderProviders, testRecorderConnection } from "../recorderClient.js";
 
 // PLAN.md "Credentials Model" — the "ask first" setup screen: has this
 // instance chosen to source providers from iptv-recorder, or does it keep
@@ -80,6 +80,15 @@ const recorderProviderSchema = {
   required: ["id", "name", "type", "baseUrl", "enabled"],
 } as const;
 
+const recorderUiUrlSchema = {
+  $id: "RecorderUiUrl",
+  type: "object",
+  properties: {
+    url: { type: "string", description: "Where iptv-recorder's own Settings UI is hosted — see its GET /config/ui-url." },
+  },
+  required: ["url"],
+} as const;
+
 // PLAN.md "Credentials Model" — this app has no auth at all (single-user,
 // LAN-only decision), same single-operator-homelab assumption as
 // iptv-recorder/iptv-scheduler use today.
@@ -115,6 +124,7 @@ export async function configRoutes(app: FastifyInstance) {
 
   app.addSchema(recorderConfigSchema);
   app.addSchema(recorderProviderSchema);
+  app.addSchema(recorderUiUrlSchema);
 
   app.get(
     "/config/recorder",
@@ -171,6 +181,28 @@ export async function configRoutes(app: FastifyInstance) {
     async (_request, reply) => {
       try {
         return await listRecorderProviders();
+      } catch (err) {
+        return reply.code(400).send({ error: err instanceof Error ? err.message : String(err) });
+      }
+    },
+  );
+
+  // Powers a plain "Open Recorder" link on the Recordings screen — this app
+  // never re-implements any of iptv-recorder's own admin surface (provider
+  // config, storage/retention, client API-key issuance, profiles) itself.
+  app.get(
+    "/config/recorder/ui-url",
+    {
+      schema: {
+        tags: ["config"],
+        summary: "Get iptv-recorder's Settings UI URL",
+        description: "Proxies iptv-recorder's GET /config/ui-url. Requires /config/recorder to already be configured.",
+        response: { 200: { $ref: "RecorderUiUrl#" }, 400: { $ref: "Error#" } },
+      },
+    },
+    async (_request, reply) => {
+      try {
+        return await getRecorderUiUrl();
       } catch (err) {
         return reply.code(400).send({ error: err instanceof Error ? err.message : String(err) });
       }

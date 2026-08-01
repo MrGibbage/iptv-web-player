@@ -1289,6 +1289,47 @@ actual iPhone yet. Still unanswered from round 5: whether the daughter's iPhone 
 phone breakpoint or the existing tablet layout already fits it — worth checking against her
 actual device before assuming this is done for both users.
 
+## Recorder page shortcut + public HTTPS route (2026-08-01)
+
+iptv-recorder gained profiles (Netflix-style, no auth), QR-code client pairing, and a
+`GET /config/ui-url` endpoint reporting where its own Settings UI is hosted (env-backed via
+`UI_URL`) in a separate, not-yet-committed session. This round wires the first of those into
+this app and stands up the HTTPS route the other two (QR scanning specifically) need to
+actually work in a browser.
+
+**Server:** `recorderClient.ts` gained `getRecorderUiUrl()`, proxied at
+`GET /config/recorder/ui-url` (`server/src/routes/config.ts`), following the exact pattern
+already used for `/config/recorder/providers` — this app never re-implements any of
+iptv-recorder's own admin surface itself, just links out to it.
+
+**Web:** `Recordings.tsx` gained an "Open Recorder ↗" button next to Refresh. Opens
+`window.open("", "_blank")` synchronously at click time, then fills in the real URL once the
+fetch resolves (`tab.location.href = url`) — calling `window.open()` only after an already-
+awaited fetch is exactly the pattern popup blockers (Safari especially) tend to kill, the same
+lesson already applied to `Player.tsx`'s `autoFullscreen` a few rounds ago.
+
+**Infra — `iptv-recorder.pelorus.org`:** added a Caddy route (LAN) and a Cloudflare Tunnel
+route (external), deliberately with **no Cloudflare Access** — the first such exception among
+~40 routes. This is intentional, not an oversight: iptv-recorder's own profiles are
+"no password, no auth boundary" by design (so a family member can pick a profile without any
+login), and gating the whole UI behind Cloudflare Access would defeat that on the very first
+screen. Full rationale + the two setup gotchas hit standing this up (a stale Caddy-side
+Cloudflare DNS-01 token — independent of, and not covered by, the `/etc/homelab` credential
+rotation from 2026-07-30 — and Vite's default `allowedHosts` rejection, the first Node/Vite
+dev app here placed behind a real hostname instead of a raw LAN IP:port) are documented in the
+Holocron: `docker-server/docker-services/iptv-recorder.md` and
+`opnsense/caddy-reverse-proxy/routing-inventory-drift-notes.md`.
+
+Verified end-to-end via Playwright: clicking "Open Recorder" opens a new tab that lands on
+`https://iptv-recorder.pelorus.org/settings` with the real page title — not just that the
+button exists, but that the whole chain (proxy route → iptv-recorder's own `UI_URL` env var →
+Caddy → browser) actually resolves to the live app.
+
+Not done this round (deliberately out of scope): actually building a QR-scan-to-configure flow
+in this app's own Recorder Connection screen (the daughter's-eventual-camera-access use case
+this HTTPS route was really added for) — iptv-recorder can already *generate* a pairing QR
+code (`Clients.tsx`), but nothing on this side scans one yet.
+
 ## Open questions
 
 1. Provider feed size/refresh cost for EPG — worth measuring before accepting a third
