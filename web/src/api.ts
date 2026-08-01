@@ -75,6 +75,11 @@ export type EffectiveProvider = {
   enabled: boolean;
 };
 
+export type PlayerSettings = {
+  previewTimeoutSecs: number;
+  updatedAt: string;
+};
+
 export type LiveCategory = {
   categoryId: string;
   categoryName: string;
@@ -168,6 +173,11 @@ export type SeriesSeason = {
   seasonNumber: number;
   name: string | null;
   episodes: SeriesEpisode[];
+};
+
+export type Progress = {
+  positionSecs: number;
+  durationSecs: number | null;
 };
 
 export type SeriesInfo = {

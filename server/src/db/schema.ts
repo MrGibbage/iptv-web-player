@@ -115,6 +115,51 @@ export const providers = sqliteTable(
 // Main/SSR, so hls.js hit a hard bufferAddCodecError trying to play it).
 // TS-container compatibility (recorder's lesson) and browser-decoder
 // compatibility (this table) are two different questions.
+// Singleton row: player-wide UX settings (currently just one). Same
+// get-or-create-on-first-read pattern as providerSourceConfig/recorderConfig
+// above — see PLAN.md "Live TV preview" for previewTimeoutSecs' purpose: how
+// long an unpromoted live-channel preview plays before auto-closing itself,
+// entirely client-driven (Player.tsx), not enforced server-side — a user
+// setting rather than a hardcoded constant because there's no obviously
+// correct value (a fast channel-surfer wants it short, someone who lingers
+// deciding wants it longer).
+export const playerSettings = sqliteTable("player_settings", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  previewTimeoutSecs: integer("preview_timeout_secs").notNull().default(20),
+  updatedAt: integer("updated_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
+// Resume/watch-progress tracking (PLAN.md Open Questions — "Dropped:
+// resume/watch-progress tracking" in both the VOD and Series sections) —
+// the one Laomedeia feature both of those ports explicitly deferred for not
+// having a progress store yet. Keyed by providerCacheKey() + mediaType +
+// mediaId, same recorder-vs-local namespacing reason as channelCodecCache
+// above (VOD streamIds and series episode ids are both provider-scoped
+// numbers/strings that mean nothing across a mode switch). mediaType keeps
+// 'vod' and 'episode' in separate id spaces under the same provider, since a
+// VOD streamId and a series episode id can otherwise collide as strings.
+// No title/poster columns — there's no "Continue Watching" rail yet (no
+// Home screen built), so this only needs to answer "does this exact
+// title/episode have a saved position" for its own detail modal.
+export const watchProgress = sqliteTable(
+  "watch_progress",
+  {
+    providerKey: text("provider_key").notNull(),
+    mediaType: text("media_type", { enum: ["vod", "episode"] }).notNull(),
+    mediaId: text("media_id").notNull(),
+    positionSecs: integer("position_secs").notNull(),
+    durationSecs: integer("duration_secs"),
+    updatedAt: integer("updated_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.providerKey, table.mediaType, table.mediaId] }),
+  }),
+);
+
 export const channelCodecCache = sqliteTable(
   "channel_codec_cache",
   {

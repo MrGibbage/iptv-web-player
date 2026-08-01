@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { getProviderSourceConfig, getRecorderConfig, setProviderSourceMode, setRecorderConfig } from "../db/settings.js";
+import { getProviderSourceConfig, getRecorderConfig, setProviderSourceMode, setRecorderConfig, getPlayerSettings, setPlayerSettings } from "../db/settings.js";
 import { listProviders as listRecorderProviders, testRecorderConnection } from "../recorderClient.js";
 
 // PLAN.md "Credentials Model" — the "ask first" setup screen: has this
@@ -67,6 +67,33 @@ function toRecorderResponse(config: { baseUrl: string | null; apiKeyEncrypted: s
   };
 }
 
+// PLAN.md "Live TV preview" — how long an unpromoted channel preview plays
+// before the client auto-closes it. Purely a client-side timer (Player.tsx);
+// this endpoint just persists the user's chosen value across reloads, the
+// same way any other setting here does.
+const playerSettingsSchema = {
+  $id: "PlayerSettings",
+  type: "object",
+  properties: {
+    previewTimeoutSecs: { type: "integer", minimum: 5, maximum: 300 },
+    updatedAt: { type: "string", format: "date-time" },
+  },
+  required: ["previewTimeoutSecs", "updatedAt"],
+} as const;
+
+const playerSettingsUpdateSchema = {
+  type: "object",
+  required: ["previewTimeoutSecs"],
+  properties: {
+    previewTimeoutSecs: { type: "integer", minimum: 5, maximum: 300 },
+  },
+  additionalProperties: false,
+} as const;
+
+function toPlayerSettingsResponse(settings: { previewTimeoutSecs: number; updatedAt: Date }) {
+  return { previewTimeoutSecs: settings.previewTimeoutSecs, updatedAt: settings.updatedAt.toISOString() };
+}
+
 const recorderProviderSchema = {
   $id: "RecorderProvider",
   type: "object",
@@ -111,6 +138,33 @@ export async function configRoutes(app: FastifyInstance) {
       },
     },
     async (request) => toProviderSourceResponse(setProviderSourceMode(request.body.mode)),
+  );
+
+  app.addSchema(playerSettingsSchema);
+
+  app.get(
+    "/config/player",
+    {
+      schema: {
+        tags: ["config"],
+        summary: "Get player UX settings",
+        response: { 200: { $ref: "PlayerSettings#" } },
+      },
+    },
+    async () => toPlayerSettingsResponse(getPlayerSettings()),
+  );
+
+  app.put<{ Body: { previewTimeoutSecs: number } }>(
+    "/config/player",
+    {
+      schema: {
+        tags: ["config"],
+        summary: "Set player UX settings",
+        body: playerSettingsUpdateSchema,
+        response: { 200: { $ref: "PlayerSettings#" } },
+      },
+    },
+    async (request) => toPlayerSettingsResponse(setPlayerSettings(request.body)),
   );
 
   app.addSchema(recorderConfigSchema);

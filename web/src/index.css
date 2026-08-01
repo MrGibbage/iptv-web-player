@@ -258,6 +258,23 @@ main {
   justify-content: space-between;
 }
 
+.player-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Floats the Live TV preview dock over whatever page it's rendered from
+   (PLAN.md "Live TV preview") rather than pushing layout around — the
+   channel list stays scrollable/usable behind it. */
+.player-compact {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  z-index: 20;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+}
+
 .button-link {
   display: inline-block;
   padding: 8px 16px;

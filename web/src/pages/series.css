@@ -2,8 +2,9 @@
    .vod-panel/.vod-sidebar/.vod-grid/.vod-poster-*/.vod-detail-* from
    vod.css — series categories/posters look identical to VOD's, per
    Laomedeia's own comment there. This file only has what's actually
-   series-specific: season tabs and the episode list. Trimmed, same as
-   vod.css: no progress-bar classes (no resume tracking yet). */
+   series-specific: season tabs and the episode list. Resume/Play from
+   start reuse the existing button + .button-link styles, so no dedicated
+   progress-bar classes were needed here. */
 
 .series-detail-card {
   width: min(820px, 92vw);

@@ -26,6 +26,7 @@ const startVodBodySchema = {
   properties: {
     vodId: { type: "integer" },
     containerExtension: { type: "string", minLength: 1 },
+    startPositionSecs: { type: "number", minimum: 0 },
   },
   additionalProperties: false,
 } as const;
@@ -36,6 +37,7 @@ const startSeriesBodySchema = {
   properties: {
     episodeId: { type: "string", minLength: 1 },
     containerExtension: { type: "string", minLength: 1 },
+    startPositionSecs: { type: "number", minimum: 0 },
   },
   additionalProperties: false,
 } as const;
@@ -95,13 +97,13 @@ export async function playbackRoutes(app: FastifyInstance) {
     },
   );
 
-  app.post<{ Params: { id: string }; Body: { vodId: number; containerExtension: string } }>(
+  app.post<{ Params: { id: string }; Body: { vodId: number; containerExtension: string; startPositionSecs?: number } }>(
     "/providers/:id/vod/stream",
     {
       schema: {
         tags: ["playback"],
         summary: "Start an HLS playback session for a VOD title",
-        description: "Same blocking-until-ready behavior as the live endpoint. containerExtension comes from whatever VOD list/detail call the client already made — see routes/vod.ts.",
+        description: "Same blocking-until-ready behavior as the live endpoint. containerExtension comes from whatever VOD list/detail call the client already made — see routes/vod.ts. Pass startPositionSecs (from GET /providers/:id/progress/vod/:vodId) to resume — ffmpeg seeks before transcoding, so the returned stream starts at that position from its first segment.",
         body: startVodBodySchema,
         response: { 201: { $ref: "StreamSession#" }, 400: { $ref: "Error#" } },
       },
@@ -109,7 +111,7 @@ export async function playbackRoutes(app: FastifyInstance) {
     async (request, reply) => {
       try {
         const providerId = Number(request.params.id);
-        const { vodId, containerExtension } = request.body;
+        const { vodId, containerExtension, startPositionSecs } = request.body;
         const streamUrl = await resolveVodStreamUrl(providerId, vodId, containerExtension);
         const result = await startSession({
           providerId,
@@ -120,6 +122,7 @@ export async function playbackRoutes(app: FastifyInstance) {
           // namespacing collision risk the way live channelIds have across
           // provider sources, so a plain per-provider prefix is enough.
           codecCacheKey: `vod-${providerId}`,
+          startOffsetSecs: startPositionSecs,
         });
         reply.code(201);
         return result;
@@ -129,13 +132,13 @@ export async function playbackRoutes(app: FastifyInstance) {
     },
   );
 
-  app.post<{ Params: { id: string }; Body: { episodeId: string; containerExtension: string } }>(
+  app.post<{ Params: { id: string }; Body: { episodeId: string; containerExtension: string; startPositionSecs?: number } }>(
     "/providers/:id/series/stream",
     {
       schema: {
         tags: ["playback"],
         summary: "Start an HLS playback session for a series episode",
-        description: "Same blocking-until-ready behavior as the live/VOD endpoints. Treated as a VOD-shaped session (no sliding window, real #EXT-X-ENDLIST) — an episode is finite content the same way a movie is.",
+        description: "Same blocking-until-ready behavior as the live/VOD endpoints. Treated as a VOD-shaped session (no sliding window, real #EXT-X-ENDLIST) — an episode is finite content the same way a movie is. Pass startPositionSecs (from GET /providers/:id/progress/episode/:episodeId) to resume.",
         body: startSeriesBodySchema,
         response: { 201: { $ref: "StreamSession#" }, 400: { $ref: "Error#" } },
       },
@@ -143,7 +146,7 @@ export async function playbackRoutes(app: FastifyInstance) {
     async (request, reply) => {
       try {
         const providerId = Number(request.params.id);
-        const { episodeId, containerExtension } = request.body;
+        const { episodeId, containerExtension, startPositionSecs } = request.body;
         const streamUrl = await resolveEpisodeStreamUrl(providerId, episodeId, containerExtension);
         const result = await startSession({
           providerId,
@@ -154,6 +157,7 @@ export async function playbackRoutes(app: FastifyInstance) {
           // prefix from vod-<providerId> costs nothing and rules out any
           // chance of collision with a numeric VOD streamId.
           codecCacheKey: `series-${providerId}`,
+          startOffsetSecs: startPositionSecs,
         });
         reply.code(201);
         return result;

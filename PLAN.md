@@ -605,6 +605,113 @@ new bug).
 above — still the more efficient long-term design for already-compatible files, still not
 necessary yet.
 
+## Resume/watch-progress tracking (2026-08-01)
+
+The one Laomedeia feature both the VOD and Series sections above explicitly dropped for
+not having a progress store yet.
+
+- **Backend**: new `watch_progress` table (`providerKey`/`mediaType`('vod'|'episode')/
+  `mediaId` primary key, `positionSecs`/`durationSecs`) — `server/src/progress.ts`'s
+  `getProgress`/`saveProgress`, exposed at `GET`/`PUT /providers/:id/progress/:mediaType/
+  :mediaId`. Mirrors Laomedeia's own rule for what's *not* worth saving: a position under
+  10s, or within 30s of the end, gets deleted instead of persisted (otherwise a barely-
+  started or just-finished title leaves a stale "resume" entry forever — nothing else ever
+  clears one).
+- **Frontend**: `Player.tsx` accepts an optional `startPositionSecs` for `kind="vod"`/
+  `"series"`; `VodBrowser.tsx`'s detail modal and `SeriesBrowser.tsx`'s per-episode rows
+  (a new `EpisodeRow` subcomponent, fetched lazily — only the selected season's episodes
+  are ever mounted, no bulk-progress endpoint needed) show "▶ Resume at H:MM" + "Play from
+  start" instead of a single "▶ Play" once a saved position exists. While playing, position
+  is PUT back every 20s plus once more on close/unmount.
+
+**Real bug found via browser testing, not just typecheck/lint**: the first implementation
+seeked client-side (`video.currentTime = startPositionSecs` on the first `loadedmetadata`)
+— this silently landed in the wrong place. `ffmpeg` always starts transcoding a VOD/series
+session from position 0; the HLS playlist it serves in the first second or two only covers
+those first few seconds of *real* content, nowhere near a non-trivial resume point yet.
+`video.currentTime` doesn't error when asked to seek past the currently-available range —
+it just clamps down into whatever tiny amount exists so far, silently. Reproduced twice
+against a real 53-minute title: resumed at a saved "0:32", the seek clamped to
+`currentTime≈6.2s` (matching the ~6s of segments ffmpeg had produced by then) and got
+stuck there — and because 6.2s is under the 10s "not worth saving" threshold, closing that
+broken session *deleted* the previously-good 0:32 progress as a side effect.
+
+**Fix**: the resume seek moved server-side. `hlsSession.ts`'s `StartSessionOptions` gained
+`startOffsetSecs`, passed to `ffmpeg` as an input-side `-ss <secs>` (before `-i`, so the
+demuxer seeks before decoding starts rather than decoding-and-discarding from 0 — no slow
+real-time fast-forward through everything before the resume point). The returned HLS
+stream now already begins at the resume point from its first segment; `Player.tsx` just
+plays it from 0 like any normal session, with no client-side seek at all. Every position
+it reports back for progress-saving adds `resumeOffsetSecs` back on top of
+`video.currentTime`/`video.duration`, so saved positions stay relative to the real file
+regardless of where a session was told to start. Re-verified: resume landed at the correct
+absolute position and kept advancing normally; a second resume-and-close correctly showed
+the accumulated time instead of the old bug's near-zero wipe.
+
+**Secondary bug found and fixed along the way**: `stopSession()` called `rm(session.dir,
+...)` immediately alongside `SIGTERM`, racing ffmpeg's own shutdown — ffmpeg can still be
+writing new segment files during its ~2-3s flush/grace period, so the sweep could finish
+before ffmpeg stopped writing, leaving the session directory non-empty (confirmed on disk:
+several leftover `data/hls-sessions/<uuid>/` directories from finished playback that were
+never actually cleaned up). Fixed by moving the `rm()` into the process's own `exit`
+handler, so cleanup only runs once ffmpeg has actually stopped.
+
+**Not yet built**: a "Continue Watching" rail — there's no Home screen yet, so this only
+answers "does this exact title/episode have a saved position" for its own detail modal,
+not "show me everything I have in progress across the library."
+
+## Live TV preview + Live TV/Guide consolidation (2026-08-01)
+
+Prompted by comparing Live TV's plain list against Laomedeia's own Guide screen (a
+category-filtered, scrollable/searchable channel-first layout) and asking whether the app
+really needed two separate top-level screens for "pick a channel" (`LiveChannels.tsx`) vs.
+"what's on" (`EpgGuide.tsx`). Decision: replace `LiveChannels.tsx` outright with a new
+`LiveTV.tsx` built around a preview-then-promote interaction — single click starts a small
+floating preview, a second click (or the "▶ Watch" button, or clicking the preview video
+itself) promotes it to full playback. `EpgGuide.tsx`/the Guide tab is **intentionally left
+separate for now** — its schedule timeline is a genuinely different job than channel
+browsing, folding it into a panel on this same screen is a reasonable next step but out of
+scope for this pass.
+
+- **`LiveTV.tsx`**: same category-sidebar/filterable-list/search-scope shape as
+  `VodBrowser.tsx`/`SeriesBrowser.tsx` (reuses `vod.css`'s panel/sidebar/toolbar classes;
+  `live.css` only adds the plain channel-row list — channels don't have posters worth a
+  grid). Clicking a row starts/switches the preview; clicking the same row again promotes.
+- **`Player.tsx`** gained `compact`/`previewTimeoutSecs`/`onPromote` props. Promoting is
+  deliberately just a prop flip on the *same* component instance (parent never changes
+  `providerId`/`mediaId`/`kind`, only `compact`) — React reuses the instance, so the
+  running session (and its ffmpeg process) is never torn down and restarted. Compact mode
+  hides native `<video controls>`, floats via a new `.player-compact` CSS rule (`position:
+  fixed`, bottom-right corner, so it overlays the channel list rather than pushing layout
+  around), and shows a "▶ Watch" button alongside the usual Close.
+- **Auto-close for an unpromoted preview**: purely client-driven — `Player.tsx` arms a
+  `setTimeout(() => onClose(), previewTimeoutSecs * 1000)` while `compact` is true, cleared
+  automatically the instant `compact` flips to false (promoted) or the component unmounts.
+  No server-side "preview" session concept needed at all: if the tab/browser dies before
+  the timer fires, the server's existing idle sweep (no segment fetches for 30s) is the
+  same backstop it already is for every other session.
+- **`previewTimeoutSecs` is a user setting, not a hardcoded constant** (there's no single
+  right answer — a fast channel-surfer wants it short, someone lingering to decide wants it
+  longer): new singleton `player_settings` table/`GET`+`PUT /config/player`, edited via a
+  plain number input at the top of the Live TV screen (5–300s range, default 20s).
+
+**Verified end-to-end against the real `sonix` account** via Playwright: category/channel
+list/filter all work; clicking a row produces a real, actually-playing preview (confirmed
+`videoWidth`/`videoHeight`/advancing `currentTime`); promoting via either the same-row
+click or the "▶ Watch" button confirmed to reuse the same session (no new `POST
+/providers/:id/live/stream` at the moment of promotion, no restart/black-flash, playback
+continues smoothly); the auto-close timer fired within ~50ms of the configured value (set
+to 5s for the test) and the corresponding `DELETE /stream/:id` was observed at the right
+time — not immediate, not never. No console errors, no orphaned ffmpeg processes, no
+leftover session directories.
+
+**Minor observation, not a new bug**: this testing incidentally exposed that
+`START_DEBOUNCE_MS`'s StrictMode-double-invoke mitigation (see `Player.tsx`, "Playback
+logging" section above) isn't 100% airtight under real network latency — one run showed a
+throwaway instance still open (and immediately close) a real connection within the same
+click. Harmless (cleaned up within the same click, dev-only, never occurs in a production
+build) — the code comment was softened to stop overclaiming an absolute guarantee.
+
 ## Open questions
 
 1. Provider feed size/refresh cost for EPG — worth measuring before accepting a third
@@ -621,3 +728,7 @@ necessary yet.
    if it proves a real problem in practice.
 5. No re-probing — a provider changing a channel's video/audio encoding will silently keep
    using the stale cached decision indefinitely. No manual "re-probe" trigger exists yet.
+6. Guide's schedule-timeline could fold into the new Live TV screen as a secondary
+   panel/tab instead of staying a fully separate top-level nav item — deliberately not
+   done in the "Live TV preview" pass above; revisit once it's clear whether the two
+   screens still feel redundant in practice.

@@ -15,6 +15,20 @@
       "when": 1785522164297,
       "tag": "0001_sweet_white_tiger",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1785529028699,
+      "tag": "0002_supreme_marten_broadcloak",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1785545215512,
+      "tag": "0003_mute_makkari",
+      "breakpoints": true
     }
   ]
 }

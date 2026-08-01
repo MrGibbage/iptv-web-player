@@ -77,10 +77,23 @@ export interface StartSessionOptions {
   // way channel ids across provider sources could), so routes/vod.ts just
   // passes a plain "vod-<providerId>" prefix instead.
   codecCacheKey: string;
+  // Resume support (PLAN.md "Resume/watch-progress tracking") — vod/series
+  // only. Real testing found that seeking client-side (hls.js/<video>
+  // .currentTime) after the session already started doesn't work: ffmpeg
+  // always begins transcoding from position 0, so the HLS playlist it
+  // serves in the first second or two only covers the first few seconds of
+  // real content — nowhere near a non-trivial resume point yet — and
+  // video.currentTime silently clamps down into that tiny available range
+  // instead of erroring, so the client can't tell it landed in the wrong
+  // place. Passing this straight to ffmpeg as an input-side "-ss" instead
+  // means the HLS output IS the resumed stream from the first segment; the
+  // client just plays it from 0 like any other session, no client-side seek
+  // race to lose.
+  startOffsetSecs?: number;
 }
 
 export async function startSession(opts: StartSessionOptions): Promise<{ sessionId: string; playlistUrl: string }> {
-  const { providerId, mediaId, streamUrl, kind, codecCacheKey } = opts;
+  const { providerId, mediaId, streamUrl, kind, codecCacheKey, startOffsetSecs } = opts;
   const { videoPassthrough, audioPassthrough } = await getCodecDecision(codecCacheKey, mediaId, streamUrl);
 
   const sessionId = crypto.randomUUID();
@@ -97,6 +110,11 @@ export async function startSession(opts: StartSessionOptions): Promise<{ session
     "1",
     "-reconnect_delay_max",
     "5",
+    // Placed before -i (input seeking) rather than after — ffmpeg seeks in
+    // the demuxer before decoding starts, instead of decoding+discarding
+    // from position 0, so a large resume point doesn't cost a slow
+    // real-time fast-forward through everything before it.
+    ...(startOffsetSecs && startOffsetSecs > 0 ? ["-ss", String(startOffsetSecs)] : []),
     "-i",
     streamUrl,
     "-c:v",
@@ -221,8 +239,17 @@ export function stopSession(sessionId: string, reason = "stopped"): void {
   const killTimer = setTimeout(() => {
     if (!session.process.killed) session.process.kill("SIGKILL");
   }, KILL_GRACE_MS);
-  session.process.once("exit", () => clearTimeout(killTimer));
-  rm(session.dir, { recursive: true, force: true }).catch(() => {});
+  // rm() only runs once ffmpeg has actually exited, not fired alongside
+  // SIGTERM — a real bug found in testing: ffmpeg keeps writing new segment
+  // files for as long as it takes to flush (the same few seconds SIGTERM
+  // above accounts for), so an rm() started immediately could race it and
+  // leave the directory non-empty (a new segment written after the sweep),
+  // which is exactly what was found on disk (session dirs from finished
+  // playback never actually cleaned up).
+  session.process.once("exit", () => {
+    clearTimeout(killTimer);
+    rm(session.dir, { recursive: true, force: true }).catch(() => {});
+  });
 }
 
 export function stopAllSessions(): void {

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, type EffectiveProvider, type SeriesCategory, type SeriesEpisode, type SeriesInfo, type SeriesListItem } from "../api";
+import { api, type EffectiveProvider, type Progress, type SeriesCategory, type SeriesEpisode, type SeriesInfo, type SeriesListItem } from "../api";
 import { Player } from "./Player";
 import "./vod.css";
 import "./series.css";
@@ -8,8 +8,65 @@ import "./series.css";
 // exact same shape as VodBrowser.tsx (category sidebar, poster grid,
 // category-vs-all search scope), plus a season-tabs + episode-list layer
 // once a show is opened. Same standalone/stale-response-guard pattern as
-// every other browsing page here; same drop of resume/watch-progress
-// tracking (no progress store built yet).
+// every other browsing page here. Resume/watch-progress tracking (PLAN.md)
+// now wired up per-episode via EpisodeRow below — fetched lazily per row
+// (only the selected season's episodes are ever mounted) rather than in
+// bulk, since there's no bulk-progress endpoint and a season's episode
+// count is small enough that this is cheap.
+function formatResumeTime(secs: number): string {
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  const s = Math.floor(secs % 60);
+  return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}` : `${m}:${String(s).padStart(2, "0")}`;
+}
+
+function EpisodeRow({ providerId, episode, onPlay }: { providerId: number; episode: SeriesEpisode; onPlay: (episode: SeriesEpisode, startPositionSecs?: number) => void }) {
+  const [progress, setProgress] = useState<Progress | null>(null);
+
+  useEffect(() => {
+    let current = true;
+    api
+      .get<Progress>(`/providers/${providerId}/progress/episode/${episode.id}`)
+      .then((result) => {
+        if (current) setProgress(result);
+      })
+      .catch(() => {
+        if (current) setProgress(null);
+      });
+    return () => {
+      current = false;
+    };
+  }, [providerId, episode.id]);
+
+  return (
+    <div className="series-episode-row">
+      <div className="series-episode-main">
+        <span className="series-episode-num">{episode.episodeNum}.</span>
+        <span className="series-episode-title" title={episode.title}>
+          {episode.title}
+        </span>
+        {episode.duration && <span className="series-episode-duration">{episode.duration}</span>}
+      </div>
+      <div className="series-episode-actions">
+        {progress ? (
+          <>
+            <button type="button" onClick={() => onPlay(episode, progress.positionSecs)}>
+              ▶ Resume at {formatResumeTime(progress.positionSecs)}
+            </button>
+            <button type="button" className="button-link" onClick={() => onPlay(episode)}>
+              Play from start
+            </button>
+          </>
+        ) : (
+          <button type="button" onClick={() => onPlay(episode)}>
+            ▶ Play
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function SeriesBrowser() {
   const [providers, setProviders] = useState<EffectiveProvider[] | "loading" | "error">("loading");
   const [providerId, setProviderId] = useState<number | null>(null);
@@ -29,7 +86,7 @@ export function SeriesBrowser() {
   const [info, setInfo] = useState<SeriesInfo | null>(null);
   const [infoLoading, setInfoLoading] = useState(false);
   const [selectedSeason, setSelectedSeason] = useState<number | null>(null);
-  const [playing, setPlaying] = useState<{ episode: SeriesEpisode; seriesName: string } | null>(null);
+  const [playing, setPlaying] = useState<{ episode: SeriesEpisode; seriesName: string; startPositionSecs?: number } | null>(null);
 
   useEffect(() => {
     api
@@ -275,28 +332,18 @@ export function SeriesBrowser() {
                       </div>
 
                       <div className="series-episode-list">
-                        {season?.episodes.map((ep) => (
-                          <div key={ep.id} className="series-episode-row">
-                            <div className="series-episode-main">
-                              <span className="series-episode-num">{ep.episodeNum}.</span>
-                              <span className="series-episode-title" title={ep.title}>
-                                {ep.title}
-                              </span>
-                              {ep.duration && <span className="series-episode-duration">{ep.duration}</span>}
-                            </div>
-                            <div className="series-episode-actions">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setPlaying({ episode: ep, seriesName: selectedSeries.name });
-                                  setSelectedSeries(null);
-                                }}
-                              >
-                                ▶ Play
-                              </button>
-                            </div>
-                          </div>
-                        ))}
+                        {season && providerId !== null &&
+                          season.episodes.map((ep) => (
+                            <EpisodeRow
+                              key={ep.id}
+                              providerId={providerId}
+                              episode={ep}
+                              onPlay={(episode, startPositionSecs) => {
+                                setPlaying({ episode, seriesName: selectedSeries.name, startPositionSecs });
+                                setSelectedSeries(null);
+                              }}
+                            />
+                          ))}
                       </div>
                     </>
                   )}
@@ -313,6 +360,7 @@ export function SeriesBrowser() {
           kind="series"
           mediaId={playing.episode.id}
           containerExtension={playing.episode.containerExtension}
+          startPositionSecs={playing.startPositionSecs}
           channelName={`${playing.seriesName} — ${playing.episode.title}`}
           onClose={() => setPlaying(null)}
         />

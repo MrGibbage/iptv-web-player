@@ -1,17 +1,25 @@
 import { useEffect, useState } from "react";
-import { api, type EffectiveProvider, type VodCategory, type VodInfo, type VodStream } from "../api";
+import { api, type EffectiveProvider, type Progress, type VodCategory, type VodInfo, type VodStream } from "../api";
 import { Player } from "./Player";
 import "./vod.css";
 
 // Ported from Laomedeia (src/components/VodBrowser.tsx) — same category
 // sidebar + poster grid + "search this category vs. search all" scope
-// toggle + detail modal shape. Two things dropped, both real Laomedeia
-// features this app doesn't have yet: resume/watch-progress tracking (no
-// progress store built here), and provider is fetched independently rather
-// than lifted from shared app state — same standalone pattern as
-// LiveChannels.tsx/EpgGuide.tsx, including the same stale-response guard
-// on every fetch (a real bug found and fixed once already — see PLAN.md
-// "Live TV channel browsing" — applied consistently from the start here).
+// toggle + detail modal shape, now with resume/watch-progress tracking
+// wired up (PLAN.md — this was dropped when VOD first shipped for not
+// having a progress store yet; ../progress.ts on the server now has one).
+// Provider is still fetched independently rather than lifted from shared
+// app state — same standalone pattern as LiveChannels.tsx/EpgGuide.tsx,
+// including the same stale-response guard on every fetch (a real bug found
+// and fixed once already — see PLAN.md "Live TV channel browsing" — applied
+// consistently from the start here).
+function formatResumeTime(secs: number): string {
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  const s = Math.floor(secs % 60);
+  return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}` : `${m}:${String(s).padStart(2, "0")}`;
+}
+
 export function VodBrowser() {
   const [providers, setProviders] = useState<EffectiveProvider[] | "loading" | "error">("loading");
   const [providerId, setProviderId] = useState<number | null>(null);
@@ -30,7 +38,8 @@ export function VodBrowser() {
   const [selectedItem, setSelectedItem] = useState<VodStream | null>(null);
   const [info, setInfo] = useState<VodInfo | null>(null);
   const [infoLoading, setInfoLoading] = useState(false);
-  const [playing, setPlaying] = useState<VodStream | null>(null);
+  const [progress, setProgress] = useState<Progress | null>(null);
+  const [playing, setPlaying] = useState<{ item: VodStream; startPositionSecs?: number } | null>(null);
 
   useEffect(() => {
     api
@@ -96,6 +105,25 @@ export function VodBrowser() {
       })
       .finally(() => {
         if (current) setInfoLoading(false);
+      });
+    return () => {
+      current = false;
+    };
+  }, [providerId, selectedItem]);
+
+  useEffect(() => {
+    if (!selectedItem || providerId === null) {
+      setProgress(null);
+      return;
+    }
+    let current = true;
+    api
+      .get<Progress>(`/providers/${providerId}/progress/vod/${selectedItem.streamId}`)
+      .then((result) => {
+        if (current) setProgress(result);
+      })
+      .catch(() => {
+        if (current) setProgress(null);
       });
     return () => {
       current = false;
@@ -269,14 +297,36 @@ export function VodBrowser() {
                 </>
               )}
               <div className="vod-detail-actions">
-                <button
-                  onClick={() => {
-                    setPlaying(selectedItem);
-                    setSelectedItem(null);
-                  }}
-                >
-                  ▶ Play
-                </button>
+                {progress ? (
+                  <>
+                    <button
+                      onClick={() => {
+                        setPlaying({ item: selectedItem, startPositionSecs: progress.positionSecs });
+                        setSelectedItem(null);
+                      }}
+                    >
+                      ▶ Resume at {formatResumeTime(progress.positionSecs)}
+                    </button>
+                    <button
+                      className="button-link"
+                      onClick={() => {
+                        setPlaying({ item: selectedItem });
+                        setSelectedItem(null);
+                      }}
+                    >
+                      Play from start
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    onClick={() => {
+                      setPlaying({ item: selectedItem });
+                      setSelectedItem(null);
+                    }}
+                  >
+                    ▶ Play
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -287,9 +337,10 @@ export function VodBrowser() {
         <Player
           providerId={providerId}
           kind="vod"
-          mediaId={String(playing.streamId)}
-          containerExtension={playing.containerExtension}
-          channelName={playing.name}
+          mediaId={String(playing.item.streamId)}
+          containerExtension={playing.item.containerExtension}
+          startPositionSecs={playing.startPositionSecs}
+          channelName={playing.item.name}
           onClose={() => setPlaying(null)}
         />
       )}

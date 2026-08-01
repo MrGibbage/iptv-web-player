@@ -3,7 +3,7 @@ import { api, type ProviderSourceConfig } from "./api";
 import { ProviderSourceChoice } from "./pages/ProviderSourceChoice";
 import { RecorderConnection } from "./pages/RecorderConnection";
 import { LocalProviders } from "./pages/LocalProviders";
-import { LiveChannels } from "./pages/LiveChannels";
+import { LiveTV } from "./pages/LiveTV";
 import { EpgGuide } from "./pages/EpgGuide";
 import { VodBrowser } from "./pages/VodBrowser";
 import { SeriesBrowser } from "./pages/SeriesBrowser";
@@ -76,7 +76,7 @@ function App() {
       {!showChoice && config !== "loading" && config !== "error" && config.mode === "local" && tab === "providers" && (
         <LocalProviders onChangeSource={() => setChangingSource(true)} />
       )}
-      {!showChoice && configured && tab === "live" && <LiveChannels />}
+      {!showChoice && configured && tab === "live" && <LiveTV />}
       {!showChoice && configured && tab === "guide" && (
         <div className="guide-container">
           <EpgGuide />
