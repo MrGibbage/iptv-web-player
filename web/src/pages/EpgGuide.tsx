@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { api, type EffectiveProvider, type EpgBounds, type EpgProgram, type EpgSearchResult, type EpgStatus, type LiveCategory, type LiveChannel, type PlayerSettings } from "../api";
+import { api, type EffectiveProvider, type EpgBounds, type EpgProgram, type EpgSearchResult, type EpgStatus, type LiveCategory, type LiveChannel, type PlayerSettings, type ProviderSourceConfig } from "../api";
 import { Player } from "./Player";
+import { RecordDialog } from "./RecordDialog";
 import "./epg.css";
 
 // Ported from Laomedeia (src/components/EpgGrid.tsx) — same virtualized
@@ -94,6 +95,8 @@ export function EpgGuide() {
   const [promoted, setPromoted] = useState(false);
   const [settings, setSettings] = useState<PlayerSettings | "loading" | "error">("loading");
   const [timeoutInput, setTimeoutInput] = useState("");
+  const [recorderMode, setRecorderMode] = useState(false);
+  const [recordTarget, setRecordTarget] = useState<{ channel: LiveChannel; startMs: number; stopMs: number } | null>(null);
 
   const dayEndMs = nextMidnight(dayStartMs);
   const dayMinutes = (dayEndMs - dayStartMs) / 60_000;
@@ -140,6 +143,16 @@ export function EpgGuide() {
         setTimeoutInput(String(s.previewTimeoutSecs));
       })
       .catch(() => setSettings("error"));
+  }, []);
+
+  // Recording (PLAN.md "Recording support") only exists via iptv-recorder —
+  // fetched once to gate the "⏺ Record" button below, same
+  // acceptable-per-page-duplication pattern as everything else here.
+  useEffect(() => {
+    api
+      .get<ProviderSourceConfig>("/config/provider-source")
+      .then((c) => setRecorderMode(c.mode === "recorder"))
+      .catch(() => {});
   }, []);
 
   // Categories on provider change.
@@ -473,12 +486,40 @@ export function EpgGuide() {
                 {selected.channelName} · {fmtDay(selected.program.startMs)} {fmtTime(selected.program.startMs)}–{fmtTime(selected.program.stopMs)}
               </div>
               <div className="epg-detail-desc">{selected.program.description || "No description."}</div>
+              {recorderMode && providerId !== null && channelsByEpgId.has(selected.program.channelId) && (
+                <div className="row-actions" style={{ marginTop: 10 }}>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setRecordTarget({
+                        channel: channelsByEpgId.get(selected.program.channelId)!,
+                        startMs: selected.program.startMs,
+                        stopMs: selected.program.stopMs,
+                      })
+                    }
+                  >
+                    ⏺ Record
+                  </button>
+                </div>
+              )}
             </>
           ) : (
             <div className="epg-detail-empty">Select a program to see details.</div>
           )}
         </div>
       </div>
+
+      {recordTarget && providerId !== null && (
+        <RecordDialog
+          providerId={providerId}
+          channelId={recordTarget.channel.channelId}
+          channelName={recordTarget.channel.name}
+          initialStart={new Date(recordTarget.startMs)}
+          initialEnd={new Date(recordTarget.stopMs)}
+          onClose={() => setRecordTarget(null)}
+          onScheduled={() => setRecordTarget(null)}
+        />
+      )}
 
       {searchActive ? (
         <div className="epg-search-results">

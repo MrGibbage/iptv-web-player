@@ -7,9 +7,10 @@ import { EpgGuide } from "./pages/EpgGuide";
 import { VodBrowser } from "./pages/VodBrowser";
 import { SeriesBrowser } from "./pages/SeriesBrowser";
 import { Diagnostics } from "./pages/Diagnostics";
+import { Recordings } from "./pages/Recordings";
 
 type LoadState = ProviderSourceConfig | "loading" | "error";
-type Tab = "providers" | "guide" | "vod" | "series" | "diagnostics";
+type Tab = "providers" | "guide" | "vod" | "series" | "recordings" | "diagnostics";
 
 // PLAN.md "Credentials Model" — provider-source mode is the one global
 // blocking state everything else sits behind, the same way iptv-scheduler
@@ -63,6 +64,9 @@ function App() {
           <button type="button" className={tab === "series" ? "active" : ""} onClick={() => setTab("series")}>
             TV Shows
           </button>
+          <button type="button" className={tab === "recordings" ? "active" : ""} onClick={() => setTab("recordings")}>
+            Recordings
+          </button>
           <button type="button" className={tab === "diagnostics" ? "active" : ""} onClick={() => setTab("diagnostics")}>
             Diagnostics
           </button>
@@ -82,6 +86,7 @@ function App() {
       )}
       {!showChoice && configured && tab === "vod" && <VodBrowser />}
       {!showChoice && configured && tab === "series" && <SeriesBrowser />}
+      {!showChoice && configured && tab === "recordings" && <Recordings />}
       {!showChoice && configured && tab === "diagnostics" && <Diagnostics />}
     </main>
   );

@@ -73,9 +73,9 @@ iptv-recorder already holds for DVR) or own a local encrypted store when recorde
 in use or holds a different account. Whichever is chosen, the rest of the app reads
 providers through `server/src/providerSource.ts`, which hides which of the two is active.
 
-iptv-recorder's completed-recordings library is **not surfaced in v1.** Revisit later via
-an HTTP-client relationship to recorder (same shape as scheduler's `recorderClient.ts`)
-once the core Live/EPG/VOD/Series viewer is solid.
+~~iptv-recorder's completed-recordings library is not surfaced in v1.~~ Built 2026-08-01,
+see "Recording support" below — the core Live/EPG/VOD/Series viewer was solid enough by
+then to build on.
 
 ### 3. EPG ingestion: independent, ported from Laomedeia
 
@@ -819,6 +819,85 @@ appeared in `/stats` with the correct pid/age/codec info and in the Diagnostics 
 and confirmed the download link actually triggers a browser download (Playwright
 `waitForEvent("download")`) with the expected filename and non-trivial size.
 
+## Recording support (2026-08-01)
+
+Recording itself is entirely iptv-recorder's job — storage, retention, the scheduler/worker
+that actually runs ffmpeg against a channel. This app never touches a recording file on
+disk directly; it's purely an HTTP client of iptv-recorder's own `/recordings` API (decision
+#2's deferred item, built now that the core viewer is solid). Ported client-side UX from
+Laomedeia (`src/components/RecordDialog.tsx` + `RecordingsBrowser.tsx`), adapted from
+Electron IPC to plain REST, matching iptv-scheduler's own sibling-service pattern.
+
+**Server** (`server/src/recorderClient.ts`, extended): added the recording-shaped types and
+functions iptv-recorder's API exposes — `createOneOffRecording`/`createRecurringRecording`
+(one `POST /recordings`, branching on `recurrence` vs `startTime`/`endTime`, same as
+iptv-recorder's own route), `listRecordings`/`getRecording`/`cancelRecording`,
+`listRecurringRules`/`cancelRecurringRule`/`skipOccurrence`. `rawFetch` became a general
+`recorderRequest()` supporting POST/DELETE bodies, and a new `RecorderApiError` (status +
+message) lets route handlers preserve iptv-recorder's own 409 hard-reject reasons (disabled
+provider, storage exhaustion, concurrent-stream/same-channel conflicts) instead of
+collapsing every failure to a generic error.
+
+New `server/src/routes/recordings.ts` proxies all of the above under the same flat
+`/recordings` paths iptv-recorder itself uses (not nested under `/providers/:id`, since
+`providerId` is already a body/query field in iptv-recorder's own resource model — mirroring
+that beats inventing a second shape). `RecorderNotConfiguredError` already gates every route
+correctly with no extra check needed: local mode never has a recorder connection configured
+in the first place, so "recording requires recorder mode" falls out for free.
+
+**Playback — the one real new problem, not just a proxy.** iptv-recorder serves a finished
+recording as a single raw MPEG-TS file (`GET /recordings/:id/file`, Bearer-authenticated).
+No browser can play that directly (same reason live channels already go through
+ffmpeg→HLS instead of a raw passthrough — MPEG-TS isn't in any browser's <video> container
+list). Solution: reuse the exact same `hlsSession.ts` pipeline used for live/VOD, with the
+recording's authenticated file URL as ffmpeg's input:
+
+- `StartSessionOptions` gained `headers?: Record<string, string>`; `codecProbe.ts` gained a
+  `headerArgs()` helper (`-headers "Key: Value\r\n"`, ffmpeg/ffprobe both accept it via
+  shared libavformat) threaded through both `ffprobeStreams` and the ffmpeg spawn itself —
+  a live channel/VOD title's URL always carries its own auth (Xtream username/password in
+  the URL, or nothing for public M3U), so nothing needed this until now.
+- `recorderClient.getRecordingStreamSource(id)` returns `{ url, headers: { Authorization:
+  "Bearer <key>" } }` — never fetched by this app's own process; handed straight to ffmpeg
+  the same way a resolved provider streamUrl already is.
+- `POST /recordings/:id/stream` (this app's own addition, not an iptv-recorder passthrough):
+  checks the recording is `completed` with a `filePath`, then starts a `kind: "vod"` session
+  (finite length, real `#EXT-X-ENDLIST`, same as any VOD title) with that source. Returns
+  the same `{sessionId, playlistUrl}` shape as every other stream-start endpoint.
+- `Player.tsx` gained a `kind: "recording"` variant (just `providerId`/`mediaId` — no
+  `containerExtension`, no resume yet, see Open Question #8) that POSTs there instead.
+
+**Web UI:**
+- `RecordDialog.tsx` (new) — one-off vs. recurring toggle, day-of-week bitmask picker for
+  recurring, ported near-verbatim from Laomedeia's own dialog. Reuses `.vod-scope-toggle`/
+  `.vod-scope-btn` for both the mode toggle and the day picker rather than inventing new
+  classes.
+- `Recordings.tsx` (new tab) — Recording Now / Scheduled / Recurring Rules / Completed /
+  Failed sections, same shape as Laomedeia's `RecordingsBrowser`. Shows a plain "requires
+  recorder mode" message (fetches `/config/provider-source` itself, same per-page pattern
+  every other screen here uses) when not in recorder mode, rather than hiding the tab
+  entirely. Completed rows get a "▶ Play" button rendering `<Player kind="recording">`
+  inline below the list (same pattern as `VodBrowser.tsx`'s own play button).
+- `EpgGuide.tsx` — a "⏺ Record" button next to the selected program's details (only when
+  `recorderMode` and the program's channel resolves to a live channel), opening
+  `RecordDialog` prefilled with that program's own start/stop as the one-off window —
+  exactly where Laomedeia put it (`EpgGrid.tsx`'s detail panel, next to "▶ Watch").
+
+**Verified against the real sonix account + a real, already-running iptv-recorder:**
+started playback of an actual completed recording (a real college football broadcast) and
+confirmed it played correctly in-browser (video decoding, screenshot); scheduled a real
+one-off recording from the Guide's "⏺ Record" button end-to-end (prefilled dialog → submit
+→ appeared in Recordings' Scheduled section → Cancel button → confirmed removed), twice,
+cancelling both test recordings immediately after confirming each step rather than letting
+them actually record. Both packages typecheck and lint clean, no console errors in any of
+the above.
+
+**Found in passing, not introduced by this change:** testing surfaced three real orphaned
+`data/hls-sessions/` directories (~1.2GB) from earlier `tsx watch` restarts during this same
+session's server-side edits — exactly the gap the Diagnostics stats panel (built earlier
+today) was meant to surface, and it did, correctly. Cleaned up manually; the underlying gap
+(Open Question #6) is unchanged.
+
 ## Open questions
 
 1. Provider feed size/refresh cost for EPG — worth measuring before accepting a third
@@ -858,11 +937,16 @@ and confirmed the download link actually triggers a browser download (Playwright
    auto-prompt like Android gets — but otherwise works fine for this app's needs; no
    offline mode or push notifications planned, so iOS's gaps there don't matter). Not
    started.
-8. Recording support — save a live channel (or VOD/series title?) to disk and play it back
-   later, laomedeia has a similar feature. Real design questions not yet worked through:
-   where recordings live on disk and how their retention/cleanup works, whether a "record"
-   ffmpeg process can coexist with a "watch" process for the same channel without doubling
-   provider connection load (see open question #4), and what the browse/play UI looks like
-   (a new tab? folded into an existing one?). Queued, not started — deliberately held until
-   docker-server is back at ganymede in the morning rather than starting a bigger backend
-   design pass from a tablet.
+8. Recording resume/progress — VOD/series titles get watch-progress tracking (see
+   "Resume/watch-progress tracking"); completed recordings don't, deliberately deferred
+   when built (see "Recording support") since `watchProgress.mediaType` is a real SQLite
+   CHECK-constrained enum (`'vod' | 'episode'`) and adding `'recording'` needs a migration,
+   not just a type change. Worth doing — a recorded 2-hour game you paused halfway through
+   is a real use case — just not bundled into the same change.
+9. Recording + live playback sharing a channel — same underlying concern as open question
+   #4 (one ffmpeg process per viewer, not shared), now with a second kind of viewer:
+   watching a channel live and iptv-recorder recording that same channel are two entirely
+   separate connections to the provider (this app's own playback session, plus whatever
+   iptv-recorder's worker opens), so a provider connection-slot limit could be hit sooner
+   than expected once both features see real use. Not addressed; revisit if it proves a
+   real problem in practice, same stance as #4.

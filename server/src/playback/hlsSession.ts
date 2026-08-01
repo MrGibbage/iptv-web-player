@@ -2,7 +2,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { mkdir, rm, readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
-import { getCodecDecision } from "./codecProbe.js";
+import { getCodecDecision, headerArgs } from "./codecProbe.js";
 import { log } from "../logger.js";
 
 // PLAN.md "Playback architecture" — one ffmpeg process per playback
@@ -93,11 +93,16 @@ export interface StartSessionOptions {
   // client just plays it from 0 like any other session, no client-side seek
   // race to lose.
   startOffsetSecs?: number;
+  // Recording playback only (PLAN.md "Recording support") — iptv-recorder's
+  // GET /recordings/:id/file requires a Bearer token, unlike a live
+  // channel/VOD title's own provider URL which carries its own auth (Xtream
+  // username/password in the URL itself, or nothing for a public M3U).
+  headers?: Record<string, string>;
 }
 
 export async function startSession(opts: StartSessionOptions): Promise<{ sessionId: string; playlistUrl: string }> {
-  const { providerId, mediaId, streamUrl, kind, codecCacheKey, startOffsetSecs } = opts;
-  const { videoPassthrough, audioPassthrough } = await getCodecDecision(codecCacheKey, mediaId, streamUrl);
+  const { providerId, mediaId, streamUrl, kind, codecCacheKey, startOffsetSecs, headers } = opts;
+  const { videoPassthrough, audioPassthrough } = await getCodecDecision(codecCacheKey, mediaId, streamUrl, headers);
 
   const sessionId = crypto.randomUUID();
   const dir = path.join(HLS_DATA_DIR, sessionId);
@@ -118,6 +123,7 @@ export async function startSession(opts: StartSessionOptions): Promise<{ session
     // from position 0, so a large resume point doesn't cost a slow
     // real-time fast-forward through everything before it.
     ...(startOffsetSecs && startOffsetSecs > 0 ? ["-ss", String(startOffsetSecs)] : []),
+    ...headerArgs(headers),
     "-i",
     streamUrl,
     "-c:v",

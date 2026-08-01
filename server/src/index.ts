@@ -12,6 +12,7 @@ import { seriesRoutes } from "./routes/series.js";
 import { progressRoutes } from "./routes/progress.js";
 import { playbackRoutes } from "./routes/playback.js";
 import { statsRoutes } from "./routes/stats.js";
+import { recordingRoutes } from "./routes/recordings.js";
 import { startEpgRefresh, stopEpgRefresh } from "./epg/index.js";
 import { startHlsSweep, stopHlsSweep, stopAllSessions } from "./playback/hlsSession.js";
 import { log } from "./logger.js";
@@ -62,6 +63,7 @@ await app.register(seriesRoutes);
 await app.register(progressRoutes);
 await app.register(playbackRoutes);
 await app.register(statsRoutes);
+await app.register(recordingRoutes);
 
 app.addHook("onClose", async () => {
   stopEpgRefresh();

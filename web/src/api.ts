@@ -202,6 +202,59 @@ export type Stats = {
   orphanedSessionDirs: string[];
 };
 
+export type RecordingStatus = "scheduled" | "recording" | "completed" | "failed" | "cancelled";
+
+export type Recording = {
+  id: number;
+  providerId: number;
+  channelId: string;
+  recurringRuleId: number | null;
+  startTime: string;
+  endTime: string;
+  status: RecordingStatus;
+  filePath: string | null;
+  failureReason: string | null;
+  createdAt: string;
+  updatedAt: string;
+  projected?: boolean;
+};
+
+export type ProjectedOccurrence = {
+  recurringRuleId: number;
+  providerId: number;
+  channelId: string;
+  startTime: string;
+  endTime: string;
+  status: "scheduled";
+  projected: true;
+};
+
+export function isProjectedOccurrence(row: Recording | ProjectedOccurrence): row is ProjectedOccurrence {
+  return row.projected === true && !("id" in row);
+}
+
+export type RecurringRule = {
+  id: number;
+  providerId: number;
+  channelId: string;
+  daysOfWeek: number;
+  startMinuteOfDay: number;
+  durationMinutes: number;
+  endDate: string | null;
+  maxOccurrences: number | null;
+  cancelledAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type RecurrencePattern = {
+  daysOfWeek: number;
+  startMinuteOfDay: number;
+  durationMinutes: number;
+  endDate?: string;
+  maxOccurrences?: number;
+};
+
 export type SeriesInfo = {
   name: string;
   cover: string | null;

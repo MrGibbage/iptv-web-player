@@ -3,11 +3,13 @@ import { getRecorderConfig } from "./db/settings.js";
 
 // Thin HTTP client for iptv-recorder's API, used only when
 // providerSourceConfig.mode = 'recorder' (see ../db/schema.ts). Mirrors
-// iptv-scheduler's own recorderClient.ts — this service is a client of
-// iptv-recorder the same as any other, through its normal public surface
-// only. Trimmed to the two endpoints provider browsing needs; no
-// recordings-related methods, since this app doesn't touch recordings (v1
-// decision — see PLAN.md).
+// iptv-scheduler's own recorderClient.ts and Laomedeia's electron/recorder.ts
+// — this service is a client of iptv-recorder the same as any other, through
+// its normal public surface only. Recording is entirely iptv-recorder's job
+// (storage, retention, the actual DVR worker/scheduler) — this app only ever
+// schedules/lists/cancels recordings and plays back a finished one; it never
+// touches a recording file directly on disk (PLAN.md "sibling service, not
+// an extension of").
 
 export type RecorderProvider = {
   id: number;
@@ -25,13 +27,101 @@ export type XtreamConnection = { type: "xtream"; baseUrl: string; username: stri
 export type M3uConnection = { type: "m3u"; playlistUrl: string; epgUrl: string | null };
 export type ProviderConnection = XtreamConnection | M3uConnection;
 
+export type RecordingStatus = "scheduled" | "recording" | "completed" | "failed" | "cancelled";
+
+export type Recording = {
+  id: number;
+  providerId: number;
+  channelId: string;
+  recurringRuleId: number | null;
+  startTime: string;
+  endTime: string;
+  status: RecordingStatus;
+  filePath: string | null;
+  failureReason: string | null;
+  createdAt: string;
+  updatedAt: string;
+  projected?: boolean;
+};
+
+export type ProjectedOccurrence = {
+  recurringRuleId: number;
+  providerId: number;
+  channelId: string;
+  startTime: string;
+  endTime: string;
+  status: "scheduled";
+  projected: true;
+};
+
+export type RecurringRule = {
+  id: number;
+  providerId: number;
+  channelId: string;
+  daysOfWeek: number;
+  startMinuteOfDay: number;
+  durationMinutes: number;
+  endDate: string | null;
+  maxOccurrences: number | null;
+  cancelledAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type RecurringRuleCancelResult = RecurringRule & { cancelledRecordings: number };
+
+export type SkipException = {
+  id: number;
+  ruleId: number;
+  occurrenceDate: string;
+  createdAt: string;
+};
+
+export type RecordingsFilter = {
+  providerId?: number;
+  channelId?: string;
+  status?: RecordingStatus;
+  startAfter?: string;
+  startBefore?: string;
+  recurringRuleId?: number;
+  includeProjected?: boolean;
+};
+
+export type RecurringRulesFilter = {
+  providerId?: number;
+  cancelled?: boolean;
+};
+
+export type RecurrencePattern = {
+  daysOfWeek: number;
+  startMinuteOfDay: number;
+  durationMinutes: number;
+  endDate?: string;
+  maxOccurrences?: number;
+};
+
 // Thrown instead of making a request when no recorder connection has been
 // configured yet. Distinguishes "not configured" from an actual
-// connectivity failure so callers can surface the right message.
+// connectivity failure so callers can surface the right message — also
+// doubles as the de facto "recording requires recorder mode" gate: local
+// mode never has a recorder connection to configure in the first place.
 export class RecorderNotConfiguredError extends Error {
   constructor() {
     super("no recorder connection configured (see PUT /config/recorder)");
     this.name = "RecorderNotConfiguredError";
+  }
+}
+
+// Carries iptv-recorder's own HTTP status through so route handlers can
+// preserve a meaningful reason (e.g. its 409 hard-rejects: disabled
+// provider, storage exhaustion, concurrent-stream limit, same-channel
+// conflict) instead of collapsing every failure to a generic 400.
+export class RecorderApiError extends Error {
+  status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.status = status;
+    this.name = "RecorderApiError";
   }
 }
 
@@ -43,24 +133,39 @@ function requireConnection(): { baseUrl: string; apiKey: string } {
   return { baseUrl: config.baseUrl, apiKey: decrypt(config.apiKeyEncrypted) };
 }
 
-async function rawFetch(baseUrl: string, apiKey: string, path: string): Promise<Response> {
+async function rawRequest(baseUrl: string, apiKey: string, path: string, init?: RequestInit): Promise<unknown> {
   const response = await fetch(`${baseUrl}${path}`, {
-    headers: { Authorization: `Bearer ${apiKey}` },
+    ...init,
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      ...(init?.body ? { "Content-Type": "application/json" } : {}),
+    },
   });
+  const text = await response.text();
+  const body: unknown = text ? JSON.parse(text) : null;
   if (!response.ok) {
-    throw new Error(`iptv-recorder ${path} returned ${response.status}: ${await response.text()}`);
+    const message = body && typeof body === "object" && "error" in body ? String((body as { error: unknown }).error) : `HTTP ${response.status}`;
+    throw new RecorderApiError(response.status, message);
   }
-  return response;
+  return body;
 }
 
-async function recorderFetch(path: string): Promise<Response> {
+async function recorderRequest(path: string, init?: RequestInit): Promise<unknown> {
   const { baseUrl, apiKey } = requireConnection();
-  return rawFetch(baseUrl, apiKey, path);
+  return rawRequest(baseUrl, apiKey, path, init);
+}
+
+function withQuery(path: string, params: Record<string, unknown>): string {
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined) search.set(key, String(value));
+  }
+  const qs = search.toString();
+  return qs ? `${path}?${qs}` : path;
 }
 
 export async function listProviders(): Promise<RecorderProvider[]> {
-  const response = await recorderFetch("/providers");
-  return response.json() as Promise<RecorderProvider[]>;
+  return (await recorderRequest("/providers")) as RecorderProvider[];
 }
 
 // Raw, unredacted credentials — iptv-recorder's own PLAN.md documents this
@@ -68,8 +173,7 @@ export async function listProviders(): Promise<RecorderProvider[]> {
 // response", for exactly this kind of trusted sibling-service use. Never
 // log or persist the result; use it for the immediate call and discard it.
 export async function getProviderConnection(providerId: number): Promise<ProviderConnection> {
-  const response = await recorderFetch(`/providers/${providerId}/connection`);
-  return response.json() as Promise<ProviderConnection>;
+  return (await recorderRequest(`/providers/${providerId}/connection`)) as ProviderConnection;
 }
 
 // Validates a candidate baseUrl/apiKey pair against iptv-recorder before
@@ -82,9 +186,51 @@ export async function testRecorderConnection(candidate: {
   apiKey: string;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
-    await rawFetch(candidate.baseUrl, candidate.apiKey, "/providers");
+    await rawRequest(candidate.baseUrl, candidate.apiKey, "/providers");
     return { ok: true };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
+}
+
+export async function createOneOffRecording(input: { providerId: number; channelId: string; startTime: string; endTime: string }): Promise<Recording> {
+  return (await recorderRequest("/recordings", { method: "POST", body: JSON.stringify(input) })) as Recording;
+}
+
+export async function createRecurringRecording(input: { providerId: number; channelId: string; recurrence: RecurrencePattern }): Promise<RecurringRule> {
+  return (await recorderRequest("/recordings", { method: "POST", body: JSON.stringify(input) })) as RecurringRule;
+}
+
+export async function listRecordings(filter: RecordingsFilter = {}): Promise<Array<Recording | ProjectedOccurrence>> {
+  return (await recorderRequest(withQuery("/recordings", filter))) as Array<Recording | ProjectedOccurrence>;
+}
+
+export async function getRecording(id: number): Promise<Recording> {
+  return (await recorderRequest(`/recordings/${id}`)) as Recording;
+}
+
+export async function cancelRecording(id: number): Promise<void> {
+  await recorderRequest(`/recordings/${id}`, { method: "DELETE" });
+}
+
+export async function listRecurringRules(filter: RecurringRulesFilter = {}): Promise<RecurringRule[]> {
+  return (await recorderRequest(withQuery("/recordings/recurring", filter))) as RecurringRule[];
+}
+
+export async function cancelRecurringRule(ruleId: number): Promise<RecurringRuleCancelResult> {
+  return (await recorderRequest(`/recordings/recurring/${ruleId}`, { method: "DELETE" })) as RecurringRuleCancelResult;
+}
+
+export async function skipOccurrence(ruleId: number, date: string): Promise<Recording | SkipException> {
+  return (await recorderRequest(`/recordings/recurring/${ruleId}/skip`, { method: "POST", body: JSON.stringify({ date }) })) as Recording | SkipException;
+}
+
+// Not fetched here — the caller (routes/recordings.ts's POST /recordings/:id/stream)
+// hands this straight to ffmpeg as its input URL + -headers, the same way a
+// live channel or VOD title's own resolved streamUrl is handed to ffmpeg by
+// ../liveChannels.ts/../vod.ts. ffmpeg/ffprobe fetch the bytes themselves;
+// this app's own process never downloads or stores the recording.
+export function getRecordingStreamSource(id: number): { url: string; headers: Record<string, string> } {
+  const { baseUrl, apiKey } = requireConnection();
+  return { url: `${baseUrl}/recordings/${id}/file`, headers: { Authorization: `Bearer ${apiKey}` } };
 }

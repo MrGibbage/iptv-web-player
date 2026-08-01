@@ -22,6 +22,7 @@ type Props = {
   | { kind: "live" }
   | { kind: "vod"; containerExtension: string; startPositionSecs?: number }
   | { kind: "series"; containerExtension: string; startPositionSecs?: number }
+  | { kind: "recording" }
 );
 
 type PlayerState = "starting" | "playing" | "error";
@@ -116,11 +117,13 @@ export function Player(props: Props) {
                 containerExtension,
                 startPositionSecs,
               })
-            : api.post<{ sessionId: string; playlistUrl: string }>(`/providers/${providerId}/series/stream`, {
-                episodeId: mediaId,
-                containerExtension,
-                startPositionSecs,
-              });
+            : kind === "series"
+              ? api.post<{ sessionId: string; playlistUrl: string }>(`/providers/${providerId}/series/stream`, {
+                  episodeId: mediaId,
+                  containerExtension,
+                  startPositionSecs,
+                })
+              : api.post<{ sessionId: string; playlistUrl: string }>(`/recordings/${mediaId}/stream`, {});
       startCall
         .then(({ sessionId: id, playlistUrl }) => {
           if (cancelled) {

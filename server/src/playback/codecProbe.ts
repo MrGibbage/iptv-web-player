@@ -41,9 +41,22 @@ interface ProbedStream {
   profile?: string;
 }
 
-async function ffprobeStreams(url: string): Promise<ProbedStream[]> {
+// ffmpeg/ffprobe share libavformat, so both accept the same "-headers"
+// input option — needed for recording playback (PLAN.md "Recording
+// support"), where the source is iptv-recorder's authenticated
+// GET /recordings/:id/file rather than a provider URL with no auth of its
+// own.
+export function headerArgs(headers?: Record<string, string>): string[] {
+  if (!headers) return [];
+  const raw = Object.entries(headers)
+    .map(([k, v]) => `${k}: ${v}`)
+    .join("\r\n");
+  return ["-headers", `${raw}\r\n`];
+}
+
+async function ffprobeStreams(url: string, headers?: Record<string, string>): Promise<ProbedStream[]> {
   return new Promise((resolve, reject) => {
-    const proc = spawn("ffprobe", ["-v", "error", "-show_entries", "stream=codec_type,codec_name,profile", "-of", "json", url]);
+    const proc = spawn("ffprobe", ["-v", "error", ...headerArgs(headers), "-show_entries", "stream=codec_type,codec_name,profile", "-of", "json", url]);
     let stdout = "";
     let stderr = "";
     const timeout = setTimeout(() => {
@@ -87,7 +100,7 @@ export type CodecDecision = {
 
 // Cache-first: a channel's codec rarely changes, so repeat tunes shouldn't
 // pay ffprobe's cost (and the network round-trip to the provider) again.
-export async function getCodecDecision(providerKey: string, channelId: string, streamUrl: string): Promise<CodecDecision> {
+export async function getCodecDecision(providerKey: string, channelId: string, streamUrl: string, headers?: Record<string, string>): Promise<CodecDecision> {
   const [cached] = db
     .select()
     .from(channelCodecCache)
@@ -103,7 +116,7 @@ export async function getCodecDecision(providerKey: string, channelId: string, s
     };
   }
 
-  const streams = await ffprobeStreams(streamUrl);
+  const streams = await ffprobeStreams(streamUrl, headers);
   const video = streams.find((s) => s.codec_type === "video");
   const audio = streams.find((s) => s.codec_type === "audio");
   if (!video?.codec_name) {
