@@ -1080,6 +1080,60 @@ real viewport dimensions. Persistence verified end-to-end: set start screen to R
 the hamburger, confirmed the value landed in `localStorage`, reloaded the page, confirmed the
 app opened directly on Recordings. Both packages typecheck and lint clean, no console errors.
 
+## Guide UI polish, round 3 (2026-08-01)
+
+The user's own framing of this round: "It's OK that we have to iterate over this. UI is
+always the hardest part." Round 2's two-hamburger toolbar (app nav + a separate Guide
+toolbar) was itself replaced — search moving into a menu turned out to be the wrong call
+("I do think it will be annoying"), and there was still more chrome above the grid than
+necessary.
+
+**No more calendar-day pagination at all.** The Guide used to be scoped to one day at a time
+(Prev/Next day buttons, a `dayStartMs`/`dayEndMs` pair reset on every day change). Given
+round 1 already established this provider's real EPG window is only ~2.4 days total and
+horizontal scroll makes day-by-day paging redundant, the whole model changed to one
+continuous scrollable window: `windowStartMs` (the current hour, captured once per provider
+selection — not re-derived every tick, so it's a fixed backward scroll limit rather than a
+constantly-advancing one) through `windowEndMs` (`bounds.maxStopMs` — the real end of
+available data, not an arbitrary midnight cutoff). Scrolling earlier than `windowStartMs` is
+now impossible for free (a scrollable container's `scrollLeft` can't go negative — no custom
+clamping code needed), and scrolling forward now reaches the actual end of the guide's data
+instead of stopping at a same-day boundary. Removed entirely: Prev/Next day buttons, the
+"Now" button (nothing to jump back to — position 0 already *is* the current hour by
+construction), the day label, `changeDay`/`jumpToNow`/`scrollToCurrentHour`/`minDay`/
+`maxDay`/`DAY_MS`/`localMidnight`/`nextMidnight`.
+
+**One combined hamburger, not two.** `.epg-menu-col` sits at the top-left of
+`.epg-player-row` itself — no separate toolbar row above it — "indenting" the preview dock by
+just its own width, per the user's explicit description. Its panel now holds everything that
+used to be split across App.tsx's nav row and the Guide's own toolbar: nav links, provider/
+category pickers, the "Start screen" preference, and a "Refresh guide" button. App.tsx's own
+nav is hidden while the Guide tab is active (`tab !== "guide"` gate) to avoid two stacked
+hamburgers — every other screen keeps it unchanged. New `navConfig.ts` holds the shared
+`Tab`/`TAB_LABELS`/`TAB_ORDER`/`StartTab` types+data so both App.tsx and EpgGuide.tsx build
+their (structurally identical, differently-hosted) nav-links list from one source. `tab`/
+`onSelectTab`/`startTabPref`/`onStartTabChange` are passed down as props — the one deliberate
+exception to this page's usual "fetch everything itself" independence, needed only so its
+embedded menu can act on tab-switching state that genuinely lives in App.tsx.
+
+**Search stays permanently visible** in its own minimal single-input row above the player
+row — the one control explicitly *not* collapsed, reversing round 2's choice once real usage
+showed hiding it wasn't worth the space saved.
+
+**The old day label moved into the "ⓘ" Guide-info popover** (next to "CHANNEL") as a
+"Showing Sat, Aug 1 12:00 PM – Sun, Aug 2 04:00 PM" range line, alongside the existing
+Updated/channel/program-count text — informational, on-demand, not permanently on screen.
+
+Net result on the real tablet, verified via Playwright at its actual viewport dimensions:
+landscape went from 0 rows (round 2, program selected) to 6 rows idle / 3+ rows with a full
+description+Record button showing; portrait went from 1 row (session start) to ~14 rows.
+Also verified: horizontal scroll physically can't go negative (confirmed via a forced
+`scrollLeft = -500` attempt clamping to 0), forward `scrollWidth` reflects the real bounds-
+derived window instead of a fixed 24h day, search still triggers results and clicking a
+result correctly scrolls to and selects the right program, the combined menu's every item
+(nav links, category, start screen, refresh) works, and non-Guide tabs still show their own
+unchanged nav. Both packages typecheck and lint clean, no console errors.
+
 ## Open questions
 
 1. Provider feed size/refresh cost for EPG — worth measuring before accepting a third

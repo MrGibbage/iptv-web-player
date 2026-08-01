@@ -2,11 +2,12 @@
    .channel-cat-btn/.channel-cat-menu (CategoryFilter wasn't ported — this
    page uses a plain <select>). PLAN.md "Guide-centric Live TV" added the
    .epg-player-* rules below (the permanent mini-player dock). PLAN.md
-   "Guide UI polish" (2026-08-01) removed .epg-status/.epg-timeout-* (status
-   text moved to App.tsx's nav row, the preview-timeout setting was dropped
-   entirely) and added .epg-stats-trigger/.stats-popover (the latter lives
-   in diagnostics.css, reused by both the full Diagnostics page and this
-   page's popover). */
+   "Guide UI polish, round 3" (2026-08-01) replaced the old two-hamburger
+   toolbar with a single combined one (.epg-menu-col) docked at the top-left
+   of .epg-player-row itself — no more separate toolbar row above it at
+   all. Search is the one control that stayed permanently visible
+   (.epg-search-row) rather than folding into the menu; round 2 tried
+   hiding it too and it was worse. */
 
 .epg-root {
   display: flex;
@@ -15,58 +16,18 @@
   min-width: 0;
 }
 
-.epg-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
+/* Deliberately minimal — a single input, no padding beyond what the input
+   itself needs, so this costs as little vertical space as an
+   always-visible control reasonably can. */
+.epg-search-row {
+  padding: 8px 12px 0;
   background: var(--bg-1);
-  border-bottom: 1px solid var(--border);
-  position: relative;
-}
-
-/* PLAN.md "Persisted UI settings" / nav layout — day-nav, category/provider
-   pickers, search, and Refresh all collapse in here; only the day label and
-   "Now" button stay permanently visible in .epg-toolbar itself. Anchored to
-   the right (the trigger sits at the toolbar's right edge, see the inline
-   marginLeft:auto in EpgGuide.tsx) rather than .hamburger-panel's default
-   left-anchor. */
-.hamburger-panel-right {
-  left: auto;
-  right: 0;
-}
-
-.epg-toolbar-panel {
-  min-width: 260px;
-}
-
-.epg-toolbar-panel select,
-.epg-toolbar-panel input {
-  width: 100%;
-  box-sizing: border-box;
-}
-
-.epg-toolbar button {
-  padding: 5px 12px;
-  font-size: 0.85rem;
-}
-
-.epg-toolbar select {
-  max-width: 180px;
-  font-size: 0.85rem;
-}
-
-.epg-toolbar .epg-day-label {
-  min-width: 108px;
-  text-align: center;
-  font-weight: 600;
-  font-size: 0.9rem;
 }
 
 .epg-search-input {
-  flex: 1;
-  min-width: 120px;
-  max-width: 340px;
+  width: 100%;
+  max-width: 480px;
+  box-sizing: border-box;
 }
 
 /* PLAN.md "Guide-centric Live TV" — the permanent mini-player dock above
@@ -75,11 +36,28 @@
    falling below on a narrow viewport) with no JS layout branching. */
 .epg-player-row {
   display: flex;
+  align-items: flex-start;
   flex-wrap: wrap;
   gap: 16px;
-  padding: 14px 12px;
+  padding: 8px 12px 14px;
   border-bottom: 1px solid var(--border);
   background: var(--bg-1);
+}
+
+/* The single combined hamburger (PLAN.md "Guide UI polish, round 3") — nav
+   links, provider/category pickers, the Start screen preference, and
+   Refresh all live in its panel. Sits at the row's top-left, "indenting"
+   the preview dock next to it by just its own width rather than costing a
+   whole separate row the way the old app-nav + Guide-toolbar rows did. */
+.epg-menu-col {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.epg-menu-col select {
+  width: 100%;
+  box-sizing: border-box;
+  max-width: 220px;
 }
 
 .epg-player-dock {

@@ -10,6 +10,9 @@
 // contexts (e.g. storage disabled) — a UI preference silently not persisting
 // is fine; a hard crash over it is not.
 
+import { START_TAB_OPTIONS, type StartTab } from "./navConfig";
+export type { StartTab };
+
 const PREFIX = "iptv-web-player:";
 
 function readRaw(key: string): string | null {
@@ -28,16 +31,12 @@ function writeRaw(key: string, value: string): void {
   }
 }
 
-// Providers/Diagnostics are deliberately not valid start screens — neither
-// is a sensible place to land by default (one's a connection-setup screen,
-// the other's a debug tool).
-export type StartTab = "guide" | "vod" | "series" | "recordings";
-const VALID_START_TABS: StartTab[] = ["guide", "vod", "series", "recordings"];
 const START_TAB_KEY = "startTab";
+const VALID_START_TABS = START_TAB_OPTIONS.map((o) => o.value) as string[];
 
 export function getStartTab(): StartTab {
   const stored = readRaw(START_TAB_KEY);
-  return (VALID_START_TABS as string[]).includes(stored ?? "") ? (stored as StartTab) : "guide";
+  return VALID_START_TABS.includes(stored ?? "") ? (stored as StartTab) : "guide";
 }
 
 export function setStartTab(tab: StartTab): void {

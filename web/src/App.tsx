@@ -9,25 +9,9 @@ import { SeriesBrowser } from "./pages/SeriesBrowser";
 import { Diagnostics } from "./pages/Diagnostics";
 import { Recordings } from "./pages/Recordings";
 import { getStartTab, setStartTab, type StartTab } from "./localSettings";
+import { TAB_LABELS, TAB_ORDER, type Tab } from "./navConfig";
 
 type LoadState = ProviderSourceConfig | "loading" | "error";
-type Tab = "providers" | "guide" | "vod" | "series" | "recordings" | "diagnostics";
-
-const TAB_LABELS: Record<Tab, string> = {
-  providers: "Providers",
-  guide: "Live TV / Guide",
-  vod: "Movies",
-  series: "TV Shows",
-  recordings: "Recordings",
-  diagnostics: "Diagnostics",
-};
-
-const START_TAB_OPTIONS: { value: StartTab; label: string }[] = [
-  { value: "guide", label: "Live TV / Guide" },
-  { value: "vod", label: "Movies" },
-  { value: "series", label: "TV Shows" },
-  { value: "recordings", label: "Recordings" },
-];
 
 // PLAN.md "Credentials Model" — provider-source mode is the one global
 // blocking state everything else sits behind, the same way iptv-scheduler
@@ -93,7 +77,12 @@ function App() {
     <main>
       {config === "loading" && <p>Loading…</p>}
       {config === "error" && <p className="error">Could not reach iptv-web-player's own API.</p>}
-      {configured && !showChoice && (
+      {/* PLAN.md "Guide UI polish, round 3" — the Guide screen renders its own
+          copy of this same nav (folded into a single hamburger next to its
+          preview dock, no separate row above it), so this one is hidden
+          there to avoid two stacked hamburgers. Every other screen still
+          gets this one, unchanged. */}
+      {configured && !showChoice && tab !== "guide" && (
         <nav className="nav" ref={navRef}>
           <button type="button" className="hamburger-trigger" aria-label="Menu" onClick={() => setNavOpen((v) => !v)}>
             ☰
@@ -101,7 +90,7 @@ function App() {
           <span className="nav-current-tab">{TAB_LABELS[tab]}</span>
           {navOpen && (
             <div className="hamburger-panel">
-              {(Object.keys(TAB_LABELS) as Tab[]).map((t) => (
+              {TAB_ORDER.map((t) => (
                 <button key={t} type="button" className={tab === t ? "active" : ""} onClick={() => selectTab(t)}>
                   {TAB_LABELS[t]}
                 </button>
@@ -110,9 +99,9 @@ function App() {
               <label className="hamburger-pref">
                 Start screen
                 <select value={startTabPref} onChange={(e) => handleStartTabChange(e.target.value as StartTab)}>
-                  {START_TAB_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
+                  {TAB_ORDER.filter((t): t is StartTab => t === "guide" || t === "vod" || t === "series" || t === "recordings").map((t) => (
+                    <option key={t} value={t}>
+                      {TAB_LABELS[t]}
                     </option>
                   ))}
                 </select>
@@ -130,7 +119,7 @@ function App() {
       )}
       {!showChoice && configured && tab === "guide" && (
         <div className="guide-container">
-          <EpgGuide />
+          <EpgGuide tab={tab} onSelectTab={selectTab} startTabPref={startTabPref} onStartTabChange={handleStartTabChange} />
         </div>
       )}
       {!showChoice && configured && tab === "vod" && <VodBrowser />}

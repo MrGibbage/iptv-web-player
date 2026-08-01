@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { api, type EffectiveProvider, type EpgBounds, type EpgProgram, type EpgSearchResult, type EpgStatus, type LiveCategory, type LiveChannel, type ProviderSourceConfig } from "../api";
-import { getLastCategory, setLastCategory } from "../localSettings";
+import { getLastCategory, setLastCategory, setStartTab, type StartTab } from "../localSettings";
+import { TAB_LABELS, TAB_ORDER, type Tab } from "../navConfig";
 import { Player } from "./Player";
 import { RecordDialog } from "./RecordDialog";
 import { StatsPopover } from "./StatsPopover";
@@ -10,47 +11,52 @@ import "./epg.css";
 // Ported from Laomedeia (src/components/EpgGrid.tsx) — same virtualized
 // channel-by-time grid, same staging-swap-backed data underneath it
 // (already proven against the real sonix account's ~2,000 channels/100k+
-// programs in the previous session). Adapted from Electron IPC
-// (window.epg.*) to this app's REST API.
+// programs). Adapted from Electron IPC (window.epg.*) to this app's REST
+// API.
 //
 // PLAN.md "Guide-centric Live TV" — this is now the *only* live-viewing
-// screen; the separate preview-then-promote LiveTV.tsx built two passes ago
-// was deleted and folded in here instead, once it became clear the grid
+// screen; the separate preview-then-promote LiveTV.tsx built several passes
+// ago was deleted and folded in here instead, once it became clear the grid
 // itself already covers "pick a channel," leaving Live TV's plain list with
 // no distinct job. Clicking a channel cell or a program block starts a
 // permanent mini-player docked above the grid (`.epg-player-row`), with
-// that program's details to its right. PLAN.md "Guide UI polish" (2026-08-01)
-// dropped the middle "promoted" state this used to have — the dock now
-// always renders compact, and going bigger means the browser's own
-// Fullscreen API (see Player.tsx), not a layout change here. The selected
-// program's channelId is an XMLTV/EPG id, a different id space than the
-// live channel's own channelId (Xtream stream_id or M3U URL) —
-// `channelsByEpgId` below is the reverse lookup from one to the other.
+// that program's details to its right.
 //
-// Still standalone rather than prop-driven: there's no shared app-level
-// state yet (only a few other pages exist), so this page fetches its own
-// provider/category/channel list independently, same pattern as
-// VodBrowser.tsx/SeriesBrowser.tsx — acceptable duplication for now, worth
-// revisiting if/when multiple pages need to share a selection.
+// PLAN.md "Guide UI polish, round 3" (2026-08-01) — the biggest layout
+// change yet: no more calendar-day pagination. The whole screen used to be
+// scoped to one day at a time (Prev/Next day buttons, a `dayStartMs`/
+// `dayEndMs` pair), but this provider's own EPG feed only ever covers ~2.4
+// days total (see round 1's investigation) and horizontal scroll makes day
+// buttons redundant anyway — so the grid is now one continuous scrollable
+// window from the current hour through to the end of whatever data exists
+// (`windowStartMs`/`windowEndMs` below), with no day concept left at all.
+// The app-level nav (Providers/Guide/Movies/...), category/provider
+// pickers, the "Start screen" preference, and Refresh all collapsed into a
+// single hamburger docked at the top-left corner of the player row (see
+// App.tsx — its own nav row is hidden while this tab is active, to avoid
+// two stacked hamburgers). Search stays permanently visible instead (a
+// deliberate exception — round 2 tried hiding it in a menu too and it was
+// worse), in its own slim row above the player row.
+//
+// Still standalone rather than prop-driven for its own data (provider list,
+// categories, channels, programs) — there's no shared app-level state for
+// that yet, same pattern as VodBrowser.tsx/SeriesBrowser.tsx. `tab`/
+// `onSelectTab`/`startTabPref`/`onStartTabChange` are the one exception,
+// passed down from App.tsx purely so this screen's own hamburger can offer
+// the same nav-links + start-screen controls App.tsx's own hamburger has on
+// every other screen.
 
 // Keep CH_COL_W in sync with .epg-channel-cell width in epg.css.
 const PX_PER_MIN = 4;
 const ROW_H = 52;
 const CH_COL_W = 220;
 const RULER_H = 36;
-const DAY_MS = 24 * 60 * 60 * 1000;
 const STATUS_POLL_MS = 30_000;
-
-function localMidnight(ms: number): number {
-  const d = new Date(ms);
-  d.setHours(0, 0, 0, 0);
-  return d.getTime();
-}
-
-// Next local midnight, robust across DST shifts (23/25-hour days).
-function nextMidnight(dayStartMs: number): number {
-  return localMidnight(dayStartMs + DAY_MS + DAY_MS / 2);
-}
+const HOUR_MS = 60 * 60 * 1000;
+// Fallback window length when bounds aren't known yet (e.g. before the
+// first status/bounds fetch resolves) — arbitrary but generous; real bounds
+// replace it within a second or two of load.
+const FALLBACK_WINDOW_MS = 24 * HOUR_MS;
 
 function fmtTime(ms: number): string {
   return new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -60,6 +66,10 @@ function fmtDay(ms: number): string {
   return new Date(ms).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
 }
 
+function fmtDayTime(ms: number): string {
+  return `${fmtDay(ms)} ${fmtTime(ms)}`;
+}
+
 function fmtAgo(ms: number): string {
   const mins = Math.round((Date.now() - ms) / 60_000);
   if (mins < 1) return "just now";
@@ -67,6 +77,10 @@ function fmtAgo(ms: number): string {
   const hours = Math.round(mins / 60);
   if (hours < 24) return `${hours}h ago`;
   return `${Math.round(hours / 24)}d ago`;
+}
+
+function currentHourStart(): number {
+  return Math.floor(Date.now() / HOUR_MS) * HOUR_MS;
 }
 
 interface SelectedProgram {
@@ -84,7 +98,14 @@ interface SelectedProgram {
 // forward runway is considered "enough" before auto-triggering a refresh.
 const STALE_MARGIN_MS = 60 * 60 * 1000;
 
-export function EpgGuide() {
+type Props = {
+  tab: Tab;
+  onSelectTab: (t: Tab) => void;
+  startTabPref: StartTab;
+  onStartTabChange: (v: StartTab) => void;
+};
+
+export function EpgGuide({ tab, onSelectTab, startTabPref, onStartTabChange }: Props) {
   const [providers, setProviders] = useState<EffectiveProvider[] | "loading" | "error">("loading");
   const [providerId, setProviderId] = useState<number | null>(null);
   const [categories, setCategories] = useState<LiveCategory[] | "loading" | "error">("loading");
@@ -92,7 +113,12 @@ export function EpgGuide() {
   const [channels, setChannels] = useState<LiveChannel[]>([]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
-  const [dayStartMs, setDayStartMs] = useState(() => localMidnight(Date.now()));
+  // The left edge of the whole scrollable window — the current hour at the
+  // moment the provider was (re)selected. Deliberately not re-derived every
+  // tick: the point is "don't default/allow scrolling into stuff that
+  // already aired," not a live-updating boundary that would need to shove
+  // an open scroll position around every hour on its own.
+  const [windowStartMs, setWindowStartMs] = useState(() => currentHourStart());
   const [programs, setPrograms] = useState<Map<string, EpgProgram[]>>(new Map());
   const requestedIdsRef = useRef(new Set<string>());
   const [selected, setSelected] = useState<SelectedProgram | null>(null);
@@ -108,24 +134,23 @@ export function EpgGuide() {
   const [recordTarget, setRecordTarget] = useState<{ channel: LiveChannel; startMs: number; stopMs: number } | null>(null);
   const [statsOpen, setStatsOpen] = useState(false);
   const [epgInfoOpen, setEpgInfoOpen] = useState(false);
-  const [toolbarOpen, setToolbarOpen] = useState(false);
-  const toolbarRef = useRef<HTMLDivElement>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
   const autoRefreshTriggeredRef = useRef(false);
 
-  // Click-outside-to-close for the toolbar's own hamburger panel (PLAN.md
-  // "Persisted UI settings" / nav layout) — same reasoning as App.tsx's nav.
+  // Click-outside-to-close for the combined hamburger panel.
   useEffect(() => {
-    if (!toolbarOpen) return;
+    if (!menuOpen) return;
     function handlePointerDown(e: MouseEvent) {
-      if (toolbarRef.current && !toolbarRef.current.contains(e.target as Node)) setToolbarOpen(false);
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
     }
     document.addEventListener("mousedown", handlePointerDown);
     return () => document.removeEventListener("mousedown", handlePointerDown);
-  }, [toolbarOpen]);
+  }, [menuOpen]);
 
-  const dayEndMs = nextMidnight(dayStartMs);
-  const dayMinutes = (dayEndMs - dayStartMs) / 60_000;
-  const contentWidth = CH_COL_W + dayMinutes * PX_PER_MIN;
+  const windowEndMs = bounds?.maxStopMs != null && bounds.maxStopMs > windowStartMs ? bounds.maxStopMs : windowStartMs + FALLBACK_WINDOW_MS;
+  const windowMinutes = (windowEndMs - windowStartMs) / 60_000;
+  const contentWidth = CH_COL_W + windowMinutes * PX_PER_MIN;
   const searchActive = searchQuery.trim().length > 0;
   const visibleEpgChannelIds = useMemo(() => new Set(channels.flatMap((channel) => (channel.epgChannelId ? [channel.epgChannelId] : []))), [channels]);
   const channelsByEpgId = useMemo(() => {
@@ -198,6 +223,11 @@ export function EpgGuide() {
     setLastCategory("guide", value);
   }
 
+  function handleStartTabSelect(value: StartTab) {
+    onStartTabChange(value);
+    setStartTab(value);
+  }
+
   // Channels on provider/category change. Same stale-response guard as
   // LiveChannels.tsx, for the same reason: an unfiltered "all categories"
   // fetch can be far slower than a filtered one and land after it.
@@ -229,11 +259,6 @@ export function EpgGuide() {
     setPrograms(new Map());
   };
 
-  const changeDay = (newDayStartMs: number) => {
-    setDayStartMs(newDayStartMs);
-    resetProgramCache();
-  };
-
   const refreshStatus = (id: number) => {
     api
       .get<EpgStatus>(`/providers/${id}/epg/status`)
@@ -258,6 +283,7 @@ export function EpgGuide() {
     autoRefreshTriggeredRef.current = false;
     resetProgramCache();
     setBounds(null);
+    setWindowStartMs(currentHourStart());
     refreshStatus(providerId);
     const timer = setInterval(() => {
       setNowMs(Date.now());
@@ -267,7 +293,8 @@ export function EpgGuide() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [providerId]);
 
-  // Fetch programs for visible rows (plus overscan) that aren't cached yet.
+  // Fetch programs for visible rows (plus overscan) that aren't cached yet
+  // — the whole window (up to ~2.4 days), not a single day.
   useEffect(() => {
     if (providerId === null || visibleEnd < 0) return;
     const timer = setTimeout(() => {
@@ -281,7 +308,7 @@ export function EpgGuide() {
       }
       if (ids.length === 0) return;
       api
-        .get<EpgProgram[]>(`/providers/${providerId}/epg/programs?channelIds=${ids.map(encodeURIComponent).join(",")}&from=${dayStartMs}&to=${dayEndMs}`)
+        .get<EpgProgram[]>(`/providers/${providerId}/epg/programs?channelIds=${ids.map(encodeURIComponent).join(",")}&from=${windowStartMs}&to=${windowEndMs}`)
         .then((rows) => {
           setPrograms((prev) => {
             const next = new Map(prev);
@@ -295,7 +322,7 @@ export function EpgGuide() {
         });
     }, 120);
     return () => clearTimeout(timer);
-  }, [providerId, visibleStart, visibleEnd, dayStartMs, dayEndMs, channels, programs]);
+  }, [providerId, visibleStart, visibleEnd, windowStartMs, windowEndMs, channels, programs]);
 
   // Debounced full-text search over channel name + title + description.
   useEffect(() => {
@@ -311,57 +338,37 @@ export function EpgGuide() {
     return () => clearTimeout(timer);
   }, [providerId, searchQuery, searchActive, visibleEpgChannelIds]);
 
-  // 15 minutes of lead-in before the target time — reasonable for jumping to
-  // a specific search result or program (a little "how did we get here"
-  // context), but deliberately NOT used for "now" (see scrollToCurrentHour
-  // below) — PLAN.md "Guide UI polish, round 2": there's no real use case for
-  // seeing minutes that already aired when you're just opening the guide.
+  // 15 minutes of lead-in before the target time — reasonable context for a
+  // search result ("how did we get here"). A target before windowStartMs
+  // (already-aired relative to the window's own left edge) has no position
+  // to scroll to at all — Math.max(0, ...) just lands at the very start
+  // rather than erroring.
   const scrollToTime = (timeMs: number) => {
     const el = scrollRef.current;
     if (!el) return;
-    const minutes = (timeMs - dayStartMs) / 60_000;
+    const minutes = (timeMs - windowStartMs) / 60_000;
     el.scrollLeft = Math.max(0, (minutes - 15) * PX_PER_MIN);
   };
 
-  // The current hour's own start (not "now minus 15 minutes") — used for the
-  // initial load and "Now" button, where landing exactly on the current hour
-  // boundary is more useful than a few minutes of already-aired lead-in.
-  const scrollToCurrentHour = (dayStart: number) => {
-    const el = scrollRef.current;
-    if (!el) return;
-    const now = Date.now();
-    const hourStart = Math.floor(now / 3_600_000) * 3_600_000;
-    el.scrollLeft = Math.max(0, ((hourStart - dayStart) / 60_000) * PX_PER_MIN);
-  };
+  // No "scroll to now" effect needed anymore (PLAN.md "Guide UI polish,
+  // round 3") — windowStartMs *is* the current hour and position 0 in the
+  // scrollable content, so a fresh scroll container's default scrollLeft=0
+  // already lands exactly there. That's also why the old "Now" button is
+  // gone: there's nothing left to jump back to that isn't already the
+  // default.
 
-  // Open the grid at the current hour rather than 12:00 AM. Runs once
-  // status first loads (the scroll container doesn't render until guide
-  // data exists).
-  const didInitialScrollRef = useRef(false);
+  // Apply a pending jump (from a search result) once the grid is actually
+  // showing (searchActive false, channels loaded) — no day-matching wait
+  // needed anymore, just waiting for the search-results view to close back
+  // to the grid.
   useEffect(() => {
-    if (didInitialScrollRef.current || !scrollRef.current) return;
-    didInitialScrollRef.current = true;
-    scrollToCurrentHour(dayStartMs);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status]);
-
-  // Apply a pending jump (from search or jump-to-now) once the target day is
-  // the active day.
-  useEffect(() => {
-    if (!jumpTarget) return;
-    if (localMidnight(jumpTarget.timeMs) !== dayStartMs) return;
-    setJumpTarget(null);
+    if (!jumpTarget || searchActive) return;
     const rowIndex = channels.findIndex((c) => c.epgChannelId === jumpTarget.channelId);
     if (rowIndex >= 0) rowVirtualizer.scrollToIndex(rowIndex, { align: "center" });
     scrollToTime(jumpTarget.timeMs);
+    setJumpTarget(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [jumpTarget, dayStartMs, channels]);
-
-  const jumpToNow = () => {
-    const today = localMidnight(Date.now());
-    if (today !== dayStartMs) changeDay(today);
-    requestAnimationFrame(() => scrollToCurrentHour(today));
-  };
+  }, [jumpTarget, searchActive, channels]);
 
   // Starts/switches the permanent mini-player dock (PLAN.md "Guide-centric
   // Live TV") — a no-op if it's already showing this channel, so re-clicking
@@ -391,19 +398,11 @@ export function EpgGuide() {
   const openSearchResult = (result: EpgSearchResult) => {
     setSearchQuery("");
     setSelected({ program: result, channelName: result.channelName });
-    const day = localMidnight(result.startMs);
-    if (day !== dayStartMs) changeDay(day);
     setJumpTarget({ channelId: result.channelId, timeMs: result.startMs });
     const channel = channelsByEpgId.get(result.channelId);
     if (channel) startPreview(channel.channelId, channel.name);
   };
 
-  // Never earlier than today, regardless of how far back the guide's own
-  // cached data goes — there's no real use case for scrolling into
-  // already-aired content on a live-TV screen (PLAN.md "Guide UI polish,
-  // round 2").
-  const minDay = Math.max(bounds?.minStartMs != null ? localMidnight(bounds.minStartMs) : 0, localMidnight(Date.now()));
-  const maxDay = bounds?.maxStopMs != null ? localMidnight(bounds.maxStopMs - 1) : null;
   const refreshing = status?.state === "refreshing";
   const hasData = (status?.programCount ?? 0) > 0;
 
@@ -452,8 +451,8 @@ export function EpgGuide() {
   if (providers.length === 0) return <p className="muted">No providers configured yet.</p>;
 
   const ticks = [];
-  for (let m = 0; m < dayMinutes; m += 30) {
-    const tickMs = dayStartMs + m * 60_000;
+  for (let m = 0; m < windowMinutes; m += 30) {
+    const tickMs = windowStartMs + m * 60_000;
     ticks.push(
       <div key={m} className="epg-tick" style={{ left: CH_COL_W + m * PX_PER_MIN, width: 30 * PX_PER_MIN }}>
         {m % 60 === 0 ? fmtTime(tickMs) : ""}
@@ -461,55 +460,73 @@ export function EpgGuide() {
     );
   }
 
-  const nowInDay = nowMs >= dayStartMs && nowMs < dayEndMs;
-  const nowLeft = CH_COL_W + ((nowMs - dayStartMs) / 60_000) * PX_PER_MIN;
+  const nowInWindow = nowMs >= windowStartMs && nowMs < windowEndMs;
+  const nowLeft = CH_COL_W + ((nowMs - windowStartMs) / 60_000) * PX_PER_MIN;
 
   return (
     <div className="epg-root">
-      <div className="epg-toolbar" ref={toolbarRef}>
-        <span className="epg-day-label">{fmtDay(dayStartMs)}</span>
-        <button onClick={jumpToNow}>Now</button>
-        <button type="button" className="hamburger-trigger" style={{ marginLeft: "auto" }} aria-label="Guide options" onClick={() => setToolbarOpen((v) => !v)}>
-          ☰
-        </button>
-        {toolbarOpen && (
-          <div className="hamburger-panel hamburger-panel-right epg-toolbar-panel">
-            <div className="row-actions">
-              <button onClick={() => changeDay(localMidnight(dayStartMs - DAY_MS / 2))} disabled={dayStartMs <= minDay}>
-                ◀ Previous day
-              </button>
-              <button onClick={() => changeDay(dayEndMs)} disabled={maxDay != null && dayStartMs >= maxDay}>
-                Next day ▶
-              </button>
-            </div>
-            {providers.length > 1 && (
-              <select value={providerId ?? ""} onChange={(e) => setProviderId(Number(e.target.value))}>
-                {providers.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
-            )}
-            <select value={categoryId} onChange={(e) => handleCategoryChange(e.target.value)} disabled={categories === "loading" || categories === "error"}>
-              <option value="">All categories</option>
-              {categories !== "loading" &&
-                categories !== "error" &&
-                categories.map((c) => (
-                  <option key={c.categoryId} value={c.categoryId}>
-                    {c.categoryName}
-                  </option>
-                ))}
-            </select>
-            <input className="epg-search-input" type="search" placeholder="Search channels, titles, descriptions…" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
-            <button onClick={handleRefresh} disabled={refreshing}>
-              {refreshing ? "Refreshing…" : "Refresh"}
-            </button>
-          </div>
-        )}
+      <div className="epg-search-row">
+        <input className="epg-search-input" type="search" placeholder="Search channels, titles, descriptions…" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
       </div>
 
       <div className="epg-player-row">
+        <div className="epg-menu-col" ref={menuRef}>
+          <button type="button" className="hamburger-trigger" aria-label="Menu" onClick={() => setMenuOpen((v) => !v)}>
+            ☰
+          </button>
+          {menuOpen && (
+            <div className="hamburger-panel">
+              {TAB_ORDER.map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  className={tab === t ? "active" : ""}
+                  onClick={() => {
+                    onSelectTab(t);
+                    setMenuOpen(false);
+                  }}
+                >
+                  {TAB_LABELS[t]}
+                </button>
+              ))}
+              <div className="hamburger-divider" />
+              {providers.length > 1 && (
+                <select value={providerId ?? ""} onChange={(e) => setProviderId(Number(e.target.value))}>
+                  {providers.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+              )}
+              <select value={categoryId} onChange={(e) => handleCategoryChange(e.target.value)} disabled={categories === "loading" || categories === "error"}>
+                <option value="">All categories</option>
+                {categories !== "loading" &&
+                  categories !== "error" &&
+                  categories.map((c) => (
+                    <option key={c.categoryId} value={c.categoryId}>
+                      {c.categoryName}
+                    </option>
+                  ))}
+              </select>
+              <div className="hamburger-divider" />
+              <label className="hamburger-pref">
+                Start screen
+                <select value={startTabPref} onChange={(e) => handleStartTabSelect(e.target.value as StartTab)}>
+                  {TAB_ORDER.filter((t): t is StartTab => t === "guide" || t === "vod" || t === "series" || t === "recordings").map((t) => (
+                    <option key={t} value={t}>
+                      {TAB_LABELS[t]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div className="hamburger-divider" />
+              <button type="button" onClick={handleRefresh} disabled={refreshing}>
+                {refreshing ? "Refreshing…" : "Refresh guide"}
+              </button>
+            </div>
+          )}
+        </div>
         <div className="epg-player-dock">
           {previewChannel && providerId !== null ? (
             <>
@@ -629,16 +646,16 @@ export function EpgGuide() {
                         Close
                       </button>
                     </div>
+                    <p className="muted">
+                      Showing {fmtDayTime(windowStartMs)} – {fmtDayTime(windowEndMs)}
+                    </p>
                     <p className={status?.state === "error" ? "error" : "muted"}>{statusText}</p>
-                    <button type="button" onClick={handleRefresh} disabled={refreshing}>
-                      {refreshing ? "Refreshing…" : "Refresh now"}
-                    </button>
                   </div>
                 )}
               </div>
             </div>
 
-            {nowInDay && <div className="epg-now-line" style={{ left: nowLeft, height: RULER_H + rowVirtualizer.getTotalSize() }} />}
+            {nowInWindow && <div className="epg-now-line" style={{ left: nowLeft, height: RULER_H + rowVirtualizer.getTotalSize() }} />}
 
             {virtualItems.map((vi) => {
               const channel = channels[vi.index];
@@ -651,9 +668,9 @@ export function EpgGuide() {
                     <span>{channel.name}</span>
                   </div>
                   {progs?.map((p) => {
-                    const clampedStart = Math.max(p.startMs, dayStartMs);
-                    const clampedStop = Math.min(p.stopMs, dayEndMs);
-                    const left = CH_COL_W + ((clampedStart - dayStartMs) / 60_000) * PX_PER_MIN;
+                    const clampedStart = Math.max(p.startMs, windowStartMs);
+                    const clampedStop = Math.min(p.stopMs, windowEndMs);
+                    const left = CH_COL_W + ((clampedStart - windowStartMs) / 60_000) * PX_PER_MIN;
                     const width = Math.max(6, ((clampedStop - clampedStart) / 60_000) * PX_PER_MIN - 2);
                     const isSelected = selected?.program.id === p.id;
                     const isPast = p.stopMs <= nowMs;
