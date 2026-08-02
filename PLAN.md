@@ -1369,6 +1369,28 @@ decoded values, and the (deliberately unreachable) fake target correctly surface
 connection-test failure rather than anything silent. The real container was confirmed
 untouched and still correctly connected immediately after.
 
+**Real-world first use (2026-08-02) found an actual scanner bug — in iptv-recorder, not
+here.** A real scan from a real phone camera worked (decode, auto-fill, auto-submit all
+functioned exactly as verified above) but the connection test itself failed:
+`"could not connect to iptv-recorder: Unexpected token '<', \"<!doctype \"... is not valid
+JSON"`. Root cause: the scanned `apiUrl` pointed at iptv-recorder's own **web UI** port
+(5174), not its API port (3300) — testing the connection hit `/providers` on the web UI's
+Vite dev server, which serves its SPA's `index.html` for any unmatched path instead of a 404,
+so this app's own `JSON.parse()` choked on the leading `<!doctype`. Confirmed via this app's
+own server logs (`PUT /config/recorder` → 400, matching the timing) and confirmed port 3300
+was genuinely up throughout (a plain `404` on `/`, not unreachable) — this app was correctly
+rejecting a bad URL, not malfunctioning. The actual defect was in `iptv-recorder/server/src/
+routes/clients.ts`: creating a client via its own Clients page goes browser → Vite dev proxy
+(5174) → Fastify (3300), and Vite's proxy forwards the original `Host` header unchanged
+rather than rewriting it, so the QR code got stamped with the browser's own `:5174` instead
+of the API's real `:3300`. Diagnosed and reported (not fixed here — iptv-recorder is a
+sibling repo); fixed there same-day (`iptv-recorder` commit `dc51bd8`): trusts the server's
+own known `PORT` over whatever port arrives in the Host header whenever `X-Forwarded-Host`
+isn't present (a real reverse proxy, once one fronts it, is still trusted as-is). Immediate
+workaround used in the meantime: the scanned API key was correct, only the URL was wrong, so
+manually fixing just the base URL field to `http://192.168.0.231:3300` before hitting Connect
+worked with no recorder changes needed at all.
+
 ## Renamed to Triton (2026-08-01)
 
 `iptv-web-player` renamed to **Triton** — Neptune's largest moon, continuing the naming of
