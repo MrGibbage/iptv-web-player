@@ -72,7 +72,21 @@ export function RecorderConnection({ onChangeSource }: Props) {
   // saved instead of offering a fresh form. This is the only way to
   // actually reset it and start over (a new base URL, a new API key, or a
   // fresh QR scan).
+  //
+  // window.confirm() here is a deliberate exception to this codebase's
+  // otherwise-consistent no-confirmation-dialogs convention (Recordings.tsx
+  // cancels/deletes with none) — added after a real incident the same day
+  // this button shipped: an accidental click cleared a working connection
+  // with no undo (the API key isn't recoverable — iptv-recorder only shows
+  // it once, at creation), and at the time, landing on the Guide tab
+  // afterward was a real dead end with no way back to this screen at all
+  // (see EscapeNav's own comment). That navigation trap is fixed now, but
+  // losing a credential that can't be recovered still deserves a pause a
+  // cancelled recording doesn't.
   async function handleForget() {
+    if (!window.confirm("Forget this recorder connection? You'll need to re-enter the base URL and API key (or scan a new QR code) to reconnect.")) {
+      return;
+    }
     setError(undefined);
     setForgetting(true);
     try {

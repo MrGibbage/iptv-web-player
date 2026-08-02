@@ -117,6 +117,63 @@ type Props = {
   onStartTabChange: (v: StartTab) => void;
 };
 
+// Real incident, not hypothetical (PLAN.md open question #11, now fixed):
+// once the recorder connection is unconfigured — a fresh "Forget this
+// recorder" click, a disconnect, anything — this screen's own providers
+// fetch fails immediately, and every early-return state below used to be a
+// bare `<p>` with zero navigation. App.tsx only shows its own nav when
+// `tab !== "guide"`, so landing here with nothing configured was a genuine
+// dead end: no way to reach Providers to fix it, short of a hard refresh
+// timed to land on a different tab first. This is deliberately a small,
+// separate menu — just the trident trigger + nav links, no category/
+// provider/start-screen/profile controls, since none of that makes sense
+// without real data anyway — used only in the loading/error/empty states,
+// not the main happy-path hamburger (which stays as it was).
+function EscapeNav({ tab, onSelectTab }: { tab: Tab; onSelectTab: (t: Tab) => void }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function handlePointerDown(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, [open]);
+
+  return (
+    <div className="epg-menu-col" ref={ref}>
+      <button type="button" className="hamburger-trigger brand-trigger" aria-label="Menu" onClick={() => setOpen((v) => !v)}>
+        🔱
+      </button>
+      {open && (
+        <div className="hamburger-panel">
+          <div className="hamburger-panel-header">
+            <span className="hamburger-panel-title">🔱 Triton</span>
+            <button type="button" className="hamburger-panel-close" aria-label="Close menu" onClick={() => setOpen(false)}>
+              ✕
+            </button>
+          </div>
+          {TAB_ORDER.map((t) => (
+            <button
+              key={t}
+              type="button"
+              className={tab === t ? "active" : ""}
+              onClick={() => {
+                onSelectTab(t);
+                setOpen(false);
+              }}
+            >
+              {TAB_LABELS[t]}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function EpgGuide({ tab, onSelectTab, startTabPref, onStartTabChange }: Props) {
   const [providers, setProviders] = useState<EffectiveProvider[] | "loading" | "error">("loading");
   const [providerId, setProviderId] = useState<number | null>(null);
@@ -528,9 +585,36 @@ export function EpgGuide({ tab, onSelectTab, startTabPref, onStartTabChange }: P
     return `Updated ${fmtAgo(status.lastRefreshMs)} · ${status.channelCount.toLocaleString()} channels · ${status.programCount.toLocaleString()} programs`;
   })();
 
-  if (providers === "loading") return <p>Loading providers…</p>;
-  if (providers === "error") return <p className="error">Could not load providers.</p>;
-  if (providers.length === 0) return <p className="muted">No providers configured yet.</p>;
+  if (providers === "loading") {
+    return (
+      <div className="epg-root">
+        <div className={isPhone ? "epg-phone-toolbar" : "epg-player-row"}>
+          <EscapeNav tab={tab} onSelectTab={onSelectTab} />
+        </div>
+        <p>Loading providers…</p>
+      </div>
+    );
+  }
+  if (providers === "error") {
+    return (
+      <div className="epg-root">
+        <div className={isPhone ? "epg-phone-toolbar" : "epg-player-row"}>
+          <EscapeNav tab={tab} onSelectTab={onSelectTab} />
+        </div>
+        <p className="error">Could not load providers.</p>
+      </div>
+    );
+  }
+  if (providers.length === 0) {
+    return (
+      <div className="epg-root">
+        <div className={isPhone ? "epg-phone-toolbar" : "epg-player-row"}>
+          <EscapeNav tab={tab} onSelectTab={onSelectTab} />
+        </div>
+        <p className="muted">No providers configured yet.</p>
+      </div>
+    );
+  }
 
   const ticks = [];
   for (let m = 0; m < windowMinutes; m += 30) {

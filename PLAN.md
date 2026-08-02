@@ -1516,13 +1516,27 @@ Real container confirmed untouched and still connected immediately after deployi
     model of "who's watching," not a per-action picker) and no profile-name display next to
     each recording row in a filtered list (low value once the list is already filtered to one
     profile).
-11. Narrower version of the navigation dead-end fixed under "QR pairing" above: choosing a
-    provider source now lands on Providers immediately, but someone who leaves mid-setup
-    (closes the tab before finishing the recorder connection form) and comes back later still
-    reloads straight into the Guide start-tab default, hits the same providers-fetch failure,
-    and lands on the same nav-less error state — just without the one-time `handleChosen`
-    redirect to save them, since that only fires on the initial choice. The deeper fix (Guide's
-    own early-return error/loading/empty states rendering *some* way to navigate elsewhere,
-    or `App.tsx` picking a smarter default tab whenever `configured` is true but the recorder
-    connection itself isn't) wasn't built — flagged rather than silently left for someone to
-    rediscover the hard way.
+11. **Resolved 2026-08-02 — became a real incident, not just a flagged risk.** The morning
+    after "Forget this recorder" shipped, the recorder connection ended up cleared (most
+    likely an exploratory or accidental click on that new, confirmation-less button) and the
+    Guide start-tab default landed on exactly the dead end this question described:
+    `EpgGuide`'s providers-fetch fails immediately with nothing configured, and every
+    early-return state (`loading`/`error`/empty) was a bare `<p>` with zero navigation —
+    `App.tsx` only shows its own nav when `tab !== "guide"`. Genuinely stuck on a phone, no
+    way back to Providers, no way to reconnect.
+    Fixed properly this time, not just patched around the one first-choice case: a new
+    `EscapeNav` component (trident trigger + nav links only — no category/provider/start-
+    screen/profile controls, none of which make sense without real data) now renders in *all
+    three* of Guide's early-return states, not just the happy path. Verified directly against
+    the live site while it was still in the broken state (not a scratch instance this time —
+    nothing left to protect, the real connection was already gone): confirmed the trigger
+    appears, and clicking through to Providers successfully reaches the connection form again.
+    Also added a `window.confirm()` to "Forget this recorder" — a deliberate, documented
+    exception to this app's otherwise-consistent no-confirmation-dialogs convention, added
+    specifically because this incident proved the combination (an unrecoverable credential —
+    iptv-recorder only ever shows the API key once — plus a real dead end if you're on the
+    wrong tab) deserved a pause a cancelled recording doesn't.
+    **Not yet done:** actually restoring the user's connection — the API key itself isn't
+    recoverable once cleared, so this requires re-entering the base URL/key or rescanning a
+    fresh QR code from iptv-recorder's own Clients screen. That's on the user, not fixable in
+    code.
